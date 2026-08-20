@@ -36,6 +36,15 @@ Sub0Log removes the staging step. A producer claims a chunk of a file-backed
 mapping with one atomic and copies its arguments in, so a record is in
 kernel-owned memory the moment the call returns.
 
+## Background
+
+`docs/` carries the groundwork rather than the plan: a survey of the existing
+low-latency C++ loggers and what each one costs, the platform tracers and the
+question of whose buffer a record lands in, what a hard kill actually destroys,
+and the framing and recovery problems as the established binary formats already
+solved them. Start at `docs/README.md`. Two of those files record a claim that
+was wrong first and say why -- that is deliberate.
+
 ## Status
 
 Early. The design is settled enough to build against; the implementation is not
