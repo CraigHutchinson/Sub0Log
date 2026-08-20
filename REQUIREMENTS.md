@@ -79,48 +79,90 @@ the producer, not resolved by the reader against a live module.
 *Rules out:* requiring plugins to link the full library, and any scheme where
 decoding needs the producing binary still to be loaded.
 
-## 5. Correlation is a field
+## 5. Several processes, one stream
 
-**R5.1** An identifier set by an RAII scope is attached automatically to every
+A single-process logger is a solved problem. The interesting cases are a service
+plus its command-line tools, a supervisor plus its workers, and any process that
+shells out to a third-party executable -- and in all of them the question a
+reader has is what happened *across* the processes, in order.
+
+**R5.1** Each process writes its own segment. There is no shared writable
+structure between processes, no cross-process lock, and no collector daemon that
+must be running for logging to work. A process that dies cannot corrupt or block
+another's stream.
+
+**R5.2** A decoder merges segments into one ordered stream. Ordering across
+processes is the decoder's job, not the producer's -- producers never coordinate.
+
+**R5.3** Timestamps must be comparable across processes on one machine. This is
+the requirement most easily assumed and most easily wrong: the C++ standard
+leaves `steady_clock`'s epoch unspecified, so two processes' readings are not
+portably comparable even on the same host. Records therefore carry a reading
+from a machine-wide monotonic source, and each segment carries an anchor record
+pairing that source with a wall-clock reading, so a merger can align segments
+whose epochs differ without depending on an implementation detail that happens
+to work today.
+
+**R5.4** A correlation identifier propagates into child processes, so work a
+child performs joins the activity that spawned it. The mechanism must survive
+`exec` of an unmodified binary, which in practice means the environment rather
+than an inherited handle.
+
+**R5.5** A child that cannot be asked to cooperate -- any third-party executable
+-- is covered by capturing its output streams and emitting them as records
+attributed to that child, carrying its command line, exit status and the
+correlation id in scope when it was spawned. The library must not require a
+child to link anything.
+
+*Rules out:* a shared ring buffer with a cross-process claim protocol, a
+collector process on the critical path, ordering by arrival at a merger, and any
+design where a spawned tool's diagnostics are simply lost.
+
+## 6. Correlation is a field
+
+**R6.1** An identifier set by an RAII scope is attached automatically to every
 record emitted within it, across threads and across the plugin boundary.
 
-**R5.2** Joining related records is an equality test on that field, not a
+**R6.2** Joining related records is an equality test on that field, not a
 heuristic over timestamps or message text.
 
-## 6. Deterministic in tests
+## 7. Deterministic in tests
 
-**R6.1** A test can bind its own instance for the duration of a scope, following
+**R7.1** A test can bind its own instance for the duration of a scope, following
 the established scoped-active pattern, and drain it synchronously.
 
-**R6.2** No test-only branch in production code paths. If a seam is needed, it
+**R7.2** No test-only branch in production code paths. If a seam is needed, it
 is present in every build.
 
 *Rules out:* `#if TEST_BUILD` bypasses, and any global that cannot be overridden
 for the duration of a test.
 
-## 7. Portability
+## 8. Portability
 
-**R7.1** Windows/MSVC, Linux and macOS with Clang and GCC, all first-class.
+**R8.1** Windows/MSVC, Linux and macOS with Clang and GCC, all first-class.
 Platform-specific code confined to a mapping layer with one interface.
 
-**R7.2** C++23. No compiler extensions on any path where a standard feature
+**R8.2** C++23. No compiler extensions on any path where a standard feature
 exists; where an extension is genuinely required, it is isolated and documented
 with what was tried instead.
 
-**R7.3** No third-party runtime dependency in the producer path.
+**R8.3** No third-party runtime dependency in the producer path.
 
-## 8. Observability of the mechanism itself
+## 9. Observability of the mechanism itself
 
-**R8.1** Dropped records are counted and the count is retrievable. A drop is
+**R9.1** Dropped records are counted and the count is retrievable. A drop is
 never silent.
 
-**R8.2** A failure the library cannot classify must be more visible than one it
+**R9.2** A failure the library cannot classify must be more visible than one it
 can, never less. Unrecognised conditions carry more evidence forward, not less.
 
 ## Explicitly out of scope
 
 Log rotation policy, network transport, a query language, and any dependency on
-a running collector daemon. The library produces a stream and a decoder; what
+a running collector daemon. Aggregation across *machines* is out too: it needs a
+transport and a clock-synchronisation story, both of which are a different
+problem from the one-host case in section 5 and would drag a dependency into a
+library that currently has none. The library produces a stream and a decoder; what
 consumes them is the caller's business.
 
 ## Open questions
