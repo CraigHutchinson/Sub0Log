@@ -5,7 +5,7 @@
 ```cpp
 #include <sub0log/log.hpp>
 
-sub0log_debug(Vfs, "read {} at {} for {} bytes", contentId, offset, len);
+sub0log_debug(Storage, "read {} at {} for {} bytes", blobId, offset, length);
 ```
 
 Nothing above formats a string, allocates, or takes a lock. The format text,

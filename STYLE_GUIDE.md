@@ -16,7 +16,7 @@ Two categories, named differently on purpose.
 `sub0log_` prefixed, no shouting.
 
 ```cpp
-sub0log_debug(Vfs, "read {} at {} for {} bytes", contentId, offset, len);
+sub0log_debug(Storage, "read {} at {} for {} bytes", blobId, offset, length);
 ```
 
 These appear in ordinary application code, often many times in a function, and
