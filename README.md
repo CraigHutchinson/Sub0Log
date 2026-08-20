@@ -1,0 +1,47 @@
+# Sub0Log
+
+**A C++23 structured diagnostic stream: typed records, no producer formatting, and a log that survives a hard kill.**
+
+```cpp
+#include <sub0log/log.hpp>
+
+sub0log_debug(Vfs, "read {} at {} for {} bytes", contentId, offset, len);
+```
+
+Nothing above formats a string, allocates, or takes a lock. The format text,
+file, line, subsystem, severity and argument types live in a descriptor emitted
+once per call site; the record carries the raw argument bytes and a reference to
+that descriptor. Text is produced later, by whoever wants text -- and in a
+headless run where nobody does, it is never produced at all.
+
+---
+
+## Why
+
+Most C++ loggers answer "make this fast" by deferring formatting to a background
+thread. That is the right first move, and several libraries do it well. Two
+problems survive it.
+
+**The record arrives as characters.** By the time a sink is invoked, an `int` has
+become `"42"`. Filtering on a numeric field means parsing text back out, joining
+related records means substring matching, and a test asserts on wording rather
+than on values.
+
+**A staging queue is process memory.** Records sitting in a frontend queue when
+the process is killed are gone, whatever the sink does with the ones that made
+it out. That rules out the two cases where a log matters most: the crash handler
+and the post-mortem of a hung process.
+
+Sub0Log removes the staging step. A producer claims a chunk of a file-backed
+mapping with one atomic and copies its arguments in, so a record is in
+kernel-owned memory the moment the call returns.
+
+## Status
+
+Early. The design is settled enough to build against; the implementation is not
+here yet. `REQUIREMENTS.md` is the contract this library is being built to, and
+is the right place to disagree before code exists.
+
+## License
+
+MIT. See `LICENSE.md`.
