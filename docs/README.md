@@ -44,6 +44,12 @@ Avro's per-file random sync marker, LevelDB's block alignment, Kafka's
 version-before-checksum ordering, and RocksDB's generation-stamped recycled logs
 and its enumeration of recovery policies.
 
+**`multi-process.md`** explains why a group of processes writes one segment
+each and merges at read time, rather than sending records to a collector,
+sharing one mapped file, or inheriting a handle from a parent. The
+availability, blast-radius and cost-asymmetry arguments are all there, along
+with the clock problem that makes a timestamp merge sound in the first place.
+
 **`record-model.md`** covers keeping the constant half of a call site out of the
 record, why a site definition must be written by the producer rather than
 resolved by the reader, where formatting happens, and the four mechanisms for
