@@ -1,6 +1,6 @@
 # Sub0Log
 
-**A C++23 structured diagnostic stream: typed records, no producer formatting, and a log that survives a hard kill.**
+**A modern C++ structured diagnostic stream: typed records, no producer formatting, and a log that survives a hard kill.** Targets C++26 with a C++23 portability floor.
 
 ```cpp
 #include <sub0log/log.hpp>

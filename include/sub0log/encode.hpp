@@ -1,0 +1,124 @@
+#pragma once
+
+/** @file encode.hpp
+ *  @brief Compile-time mapping from C++ argument types to wire type codes,
+ *         and the payload encoder.
+ *
+ *  The refusal is the point (docs/record-model.md): an argument that is not
+ *  trivially copyable, or that would silently convert into an owning type,
+ *  does not compile. There is no formatting fallback anywhere in here.
+ */
+
+#include "wire.hpp"
+
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <string_view>
+#include <type_traits>
+
+namespace sub0log::detail {
+
+// ---------------------------------------------------------------------------
+// Type classification
+
+template <typename T>
+using Decayed = std::remove_cvref_t<T>;
+
+template <typename T>
+concept ByteView = std::same_as<Decayed<T>, std::string_view>
+                || std::same_as<Decayed<T>, std::span<const std::byte>>;
+
+// A const char* / char array argument is accepted and encoded as Bytes; it is
+// measured once at the call, never copied into an owning string.
+template <typename T>
+concept CStringLike = std::same_as<std::decay_t<T>, const char*>
+                   || std::same_as<std::decay_t<T>, char*>;
+
+template <typename T>
+concept FixedEncodable = std::same_as<Decayed<T>, bool>
+                      || std::same_as<Decayed<T>, char>
+                      || (std::integral<Decayed<T>> && sizeof(Decayed<T>) <= 8)
+                      || std::floating_point<Decayed<T>>
+                      || std::is_enum_v<Decayed<T>>
+                      || std::is_pointer_v<Decayed<T>>;
+
+/// The full set a call site may pass. Everything else is rejected at compile
+/// time by typeCodeFor's static_assert, which names the two escape hatches.
+template <typename T>
+concept Encodable = FixedEncodable<T> || ByteView<T> || CStringLike<T>;
+
+/// Maps a C++ type to its wire code. Instantiating this with an unsupported
+/// type produces the library's canonical refusal message.
+template <typename T>
+[[nodiscard]] consteval wire::TypeCode typeCodeFor() noexcept
+{
+    using U = Decayed<T>;
+    if constexpr (std::same_as<U, bool>) { return wire::TypeCode::Bool; }
+    else if constexpr (std::same_as<U, char>) { return wire::TypeCode::Char; }
+    else if constexpr (std::is_enum_v<U>) {
+        return typeCodeFor<std::underlying_type_t<U>>();
+    }
+    else if constexpr (ByteView<T> || CStringLike<T>) { return wire::TypeCode::Bytes; }
+    else if constexpr (std::is_pointer_v<U>) { return wire::TypeCode::Pointer; }
+    else if constexpr (std::floating_point<U>) {
+        return sizeof(U) == 4 ? wire::TypeCode::F32 : wire::TypeCode::F64;
+    }
+    else if constexpr (std::signed_integral<U>) {
+        switch (sizeof(U)) {
+        case 1: return wire::TypeCode::I8;
+        case 2: return wire::TypeCode::I16;
+        case 4: return wire::TypeCode::I32;
+        default: return wire::TypeCode::I64;
+        }
+    }
+    else if constexpr (std::unsigned_integral<U>) {
+        switch (sizeof(U)) {
+        case 1: return wire::TypeCode::U8;
+        case 2: return wire::TypeCode::U16;
+        case 4: return wire::TypeCode::U32;
+        default: return wire::TypeCode::U64;
+        }
+    }
+    else {
+        static_assert(FixedEncodable<T> || ByteView<T> || CStringLike<T>,
+                      "Sub0Log arguments must be trivially copyable values or "
+                      "byte views. For text pass std::string_view (bytes are "
+                      "inlined, capped); for large or owned data log an "
+                      "identifier instead. A std::string will not be silently "
+                      "copied -- that hidden allocation is what this refusal "
+                      "prevents (docs/record-model.md).");
+        return wire::TypeCode::Invalid;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sizing and encoding
+//
+// TODO(impl:producer): implement per the contract below.
+//
+//  - upperBoundSize(args...): compile-time-friendly worst-case payload bytes
+//    for the argument pack (fixed sizes + per-view u16 length + capped view
+//    bytes), used to decide whether the record fits the chunk's remainder.
+//  - encodeArgs(dst, capacity, args...): packs arguments little-endian:
+//    fixed-size values raw via wire::storeUnaligned; views as u16 length then
+//    bytes, truncated at wire::cInlineBytesCap. Returns bytes written and
+//    whether anything was truncated (the caller sets cFlagTruncated -- a cut
+//    is visible, never silent, R9.2).
+//
+//  No allocation, no formatting, no locks (R1.1-R1.3).
+
+struct EncodeResult {
+    std::uint32_t bytes_{};
+    bool truncated_{};
+};
+
+template <Encodable... Args>
+[[nodiscard]] constexpr std::uint32_t upperBoundSize(const Args&... args) noexcept;
+
+template <Encodable... Args>
+[[nodiscard]] EncodeResult encodeArgs(std::byte* dst, std::uint32_t capacity,
+                                      const Args&... args) noexcept;
+
+} // namespace sub0log::detail

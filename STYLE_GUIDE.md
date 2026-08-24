@@ -56,9 +56,11 @@ expands inside the library shouts, because there the reader's question really is
 ## Modern C++ first
 
 Reach for a language feature before a macro, and prefer the newest form the
-project's standard supports. C++23 is the baseline; C++26 is not available, so
-`_` as a reusable discarded-variable placeholder (P2169) and static reflection
-are out of scope until it is.
+project's standard supports. The project targets C++26 with a C++23 portability
+floor (docs/architecture.md, "Language standard"): every header must compile as
+C++23, and a C++26-only feature -- `_` as a reusable discarded-variable
+placeholder (P2169), static reflection -- is gated on its feature-test macro
+with the C++23 spelling beside it, never on a compiler identity.
 
 A macro is justified only where a language feature cannot express the
 requirement, and that justification is written down with the evidence -- as
