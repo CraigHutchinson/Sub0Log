@@ -50,6 +50,12 @@ sharing one mapped file, or inheriting a handle from a parent. The
 availability, blast-radius and cost-asymmetry arguments are all there, along
 with the clock problem that makes a timestamp merge sound in the first place.
 
+**`vnext-frontend-backend.md`** records a design consideration for the next
+version -- a front-end/backend split -- and, more importantly, the constraint
+that rules out its obvious shape: a record queue under the word "backend" is
+the staging arrangement `hard-kill.md` rejects. The honest seam is the chunk
+source, where backend choice costs nothing per record.
+
 **`record-model.md`** covers keeping the constant half of a call site out of the
 record, why a site definition must be written by the producer rather than
 resolved by the reader, where formatting happens, and the four mechanisms for
