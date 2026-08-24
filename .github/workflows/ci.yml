@@ -1,0 +1,73 @@
+# Three platforms, first-class (R8.1). The unit and integration labels run
+# everywhere; the system label exercises fork/exec and child capture, whose
+# Windows arms are v2, so those tests are compiled out there (the label
+# still runs whatever the platform compiles in).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-24.04
+            cxx: g++
+            generator: Ninja
+          - name: linux-clang
+            os: ubuntu-24.04
+            cxx: clang++
+            generator: Ninja
+          - name: linux-gcc-sanitizers
+            os: ubuntu-24.04
+            cxx: g++
+            generator: Ninja
+            flags: -fsanitize=address,undefined -fno-sanitize-recover=all
+          - name: macos-appleclang
+            os: macos-15
+            cxx: clang++
+            generator: Ninja
+          - name: windows-msvc
+            os: windows-2022
+            # MSVC via the default Visual Studio generator; multi-config, so
+            # the configuration is picked at build/test time.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install Ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: Configure
+        if: runner.os != 'Windows'
+        env:
+          CXX: ${{ matrix.cxx }}
+        run: >
+          cmake -S . -B build -G "${{ matrix.generator }}"
+          -DCMAKE_BUILD_TYPE=Debug
+          ${{ matrix.flags && format('-DCMAKE_CXX_FLAGS="{0}"', matrix.flags) || '' }}
+
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Test
+        run: ctest --test-dir build -C Debug --output-on-failure
+
+# A benchmarks-smoke job (build + --list, never a pass/fail number gate)
+# joins this file in the commit that adds the benchmark suite.
