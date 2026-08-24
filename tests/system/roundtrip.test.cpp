@@ -7,6 +7,8 @@
 #include <sub0log/merge.hpp>
 #include <sub0log/reader.hpp>
 
+#include "support/fixtures.hpp"
+
 #include <doctest/doctest.h>
 
 #include <cstdlib>
@@ -22,38 +24,7 @@
 
 namespace {
 
-std::filesystem::path freshDirectory(const char* const tag)
-{
-    auto path = std::filesystem::temp_directory_path()
-              / (std::string{"sub0log-rt-"} + tag + "-"
-                 + std::to_string(sub0log::detail::currentProcessId()));
-    std::filesystem::remove_all(path);
-    std::filesystem::create_directories(path);
-    return path;
-}
 
-std::vector<std::byte> slurp(const std::filesystem::path& path)
-{
-    std::ifstream in{path, std::ios::binary};
-    REQUIRE(in.good());
-    std::vector<char> raw{std::istreambuf_iterator<char>{in},
-                          std::istreambuf_iterator<char>{}};
-    const auto* first = reinterpret_cast<const std::byte*>(raw.data());
-    return {first, first + raw.size()};
-}
-
-std::filesystem::path onlySegmentIn(const std::filesystem::path& directory)
-{
-    std::filesystem::path found;
-    for (const auto& entry : std::filesystem::directory_iterator{directory}) {
-        if (entry.path().extension() == ".s0l") {
-            REQUIRE(found.empty());
-            found = entry.path();
-        }
-    }
-    REQUIRE(!found.empty());
-    return found;
-}
 
 constexpr sub0log::SubsystemId cStorage{3};
 
@@ -61,7 +32,7 @@ constexpr sub0log::SubsystemId cStorage{3};
 
 TEST_CASE("a logged record round-trips typed through the file")
 {
-    const auto directory = freshDirectory("basic");
+    const auto directory = sub0log::test::freshDirectory("basic");
 
     std::uint64_t correlationSeen = 0;
     {
@@ -77,7 +48,7 @@ TEST_CASE("a logged record round-trips typed through the file")
         sub0log_error(cStorage, "no args here");
     }
 
-    const auto image = slurp(onlySegmentIn(directory));
+    const auto image = sub0log::test::slurp(sub0log::test::onlySegmentIn(directory));
     auto reader = sub0log::SegmentReader::open(image);
     REQUIRE(reader.valid());
 
@@ -111,7 +82,7 @@ TEST_CASE("a logged record round-trips typed through the file")
 #ifndef _WIN32
 TEST_CASE("with no scope active, records carry the environment's root correlation (R5.4)")
 {
-    const auto directory = freshDirectory("rootcorr");
+    const auto directory = sub0log::test::freshDirectory("rootcorr");
 
     ::setenv("SUB0LOG_CORRELATION", "7777", 1);
     {
@@ -131,7 +102,7 @@ TEST_CASE("with no scope active, records carry the environment's root correlatio
     }
     ::unsetenv("SUB0LOG_CORRELATION");
 
-    const auto image = slurp(onlySegmentIn(directory));
+    const auto image = sub0log::test::slurp(sub0log::test::onlySegmentIn(directory));
     auto reader = sub0log::SegmentReader::open(image);
     REQUIRE(reader.valid());
     sub0log::Decoder decoder;
@@ -145,7 +116,7 @@ TEST_CASE("with no scope active, records carry the environment's root correlatio
 
 TEST_CASE("committed records survive a hard kill of the producer (R3.1)")
 {
-    const auto directory = freshDirectory("kill");
+    const auto directory = sub0log::test::freshDirectory("kill");
 
     const pid_t child = ::fork();
     REQUIRE(child >= 0);
@@ -164,7 +135,7 @@ TEST_CASE("committed records survive a hard kill of the producer (R3.1)")
     REQUIRE(WIFEXITED(status));
     REQUIRE(WEXITSTATUS(status) == 0);
 
-    const auto image = slurp(onlySegmentIn(directory));
+    const auto image = sub0log::test::slurp(sub0log::test::onlySegmentIn(directory));
     auto reader = sub0log::SegmentReader::open(image);
     REQUIRE(reader.valid());
     sub0log::Decoder decoder;
@@ -178,7 +149,7 @@ TEST_CASE("committed records survive a hard kill of the producer (R3.1)")
 
 TEST_CASE("two processes, one merged stream, ordered by anchored time (R5)")
 {
-    const auto directory = freshDirectory("merge");
+    const auto directory = sub0log::test::freshDirectory("merge");
 
     // Parent logs one record, then a forked child (its own process, its own
     // segment, its own anchor) logs one, then the parent logs a third. The
@@ -220,7 +191,7 @@ TEST_CASE("two processes, one merged stream, ordered by anchored time (R5)")
     std::vector<std::vector<std::byte>> images;
     for (const auto& entry : std::filesystem::directory_iterator{directory}) {
         if (entry.path().extension() == ".s0l") {
-            images.push_back(slurp(entry.path()));
+            images.push_back(sub0log::test::slurp(entry.path()));
         }
     }
     REQUIRE(images.size() == 2);

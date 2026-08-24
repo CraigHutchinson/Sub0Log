@@ -12,6 +12,8 @@
 #include <sub0log/reader.hpp>
 #include <sub0log/wire.hpp>
 
+#include "support/fixtures.hpp"
+
 #include <doctest/doctest.h>
 
 #include <algorithm>
@@ -30,37 +32,7 @@
 
 namespace {
 
-std::filesystem::path freshDirectory(const char* const tag)
-{
-    auto path = std::filesystem::temp_directory_path()
-              / (std::string{"sub0log-child-"} + tag + "-"
-                 + std::to_string(sub0log::detail::currentProcessId()));
-    std::filesystem::remove_all(path);
-    std::filesystem::create_directories(path);
-    return path;
-}
 
-std::vector<std::byte> slurp(const std::filesystem::path& path)
-{
-    std::ifstream in{path, std::ios::binary};
-    REQUIRE(in.good());
-    std::vector<char> raw{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-    const auto* first = reinterpret_cast<const std::byte*>(raw.data());
-    return {first, first + raw.size()};
-}
-
-std::filesystem::path onlySegmentIn(const std::filesystem::path& directory)
-{
-    std::filesystem::path found;
-    for (const auto& entry : std::filesystem::directory_iterator{directory}) {
-        if (entry.path().extension() == ".s0l") {
-            REQUIRE(found.empty());
-            found = entry.path();
-        }
-    }
-    REQUIRE(!found.empty());
-    return found;
-}
 
 // A committed record, payload bytes copied out so it outlives the visit()
 // call (RecordView::payload_ is only a view into the segment image).
@@ -135,7 +107,7 @@ sub0log::wire::ChildExitPayload asChildExit(const RawRecord& r)
 
 TEST_CASE("a captured /bin/echo produces ChildStart, ChildOutput and a clean ChildExit (R5.5)")
 {
-    const auto directory = freshDirectory("echo");
+    const auto directory = sub0log::test::freshDirectory("echo");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -158,7 +130,7 @@ TEST_CASE("a captured /bin/echo produces ChildStart, ChildOutput and a clean Chi
         CHECK(stats.truncatedLines_ == 0u);
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto starts = recordsOfKind(all, sub0log::wire::RecordKind::ChildStart);
     const auto outputs = recordsOfKind(all, sub0log::wire::RecordKind::ChildOutput);
     const auto exits = recordsOfKind(all, sub0log::wire::RecordKind::ChildExit);
@@ -186,7 +158,7 @@ TEST_CASE("a captured /bin/echo produces ChildStart, ChildOutput and a clean Chi
 
 TEST_CASE("stdout and stderr are captured on separate streams, per-line (R5.5)")
 {
-    const auto directory = freshDirectory("streams");
+    const auto directory = sub0log::test::freshDirectory("streams");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -200,7 +172,7 @@ TEST_CASE("stdout and stderr are captured on separate streams, per-line (R5.5)")
         CHECK(child.stats().capturedLines_ == 5u);
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto outputs = recordsOfKind(all, sub0log::wire::RecordKind::ChildOutput);
     REQUIRE(outputs.size() == 5u);
 
@@ -230,7 +202,7 @@ TEST_CASE("stdout and stderr are captured on separate streams, per-line (R5.5)")
 
 TEST_CASE("exit code and terminating signal both reach ChildExit and wait()'s return")
 {
-    const auto directory = freshDirectory("exit");
+    const auto directory = sub0log::test::freshDirectory("exit");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -249,7 +221,7 @@ TEST_CASE("exit code and terminating signal both reach ChildExit and wait()'s re
         CHECK(killedStatus.signal_ == SIGTERM);
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto exits = recordsOfKind(all, sub0log::wire::RecordKind::ChildExit);
     REQUIRE(exits.size() == 2u);
     CHECK(asChildExit(exits[0]).exitCode_ == 7);
@@ -261,7 +233,7 @@ TEST_CASE("exit code and terminating signal both reach ChildExit and wait()'s re
 
 TEST_CASE("an interceptor can suppress lines, counted, and survives throwing (R5.6)")
 {
-    const auto directory = freshDirectory("intercept");
+    const auto directory = sub0log::test::freshDirectory("intercept");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -293,7 +265,7 @@ TEST_CASE("an interceptor can suppress lines, counted, and survives throwing (R5
         CHECK(stats.suppressedLines_ == 1u);
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto outputs = recordsOfKind(all, sub0log::wire::RecordKind::ChildOutput);
     REQUIRE(outputs.size() == 3u); // keep-this, also-keep, and the one that threw (logged anyway)
 
@@ -311,7 +283,7 @@ TEST_CASE("an interceptor can suppress lines, counted, and survives throwing (R5
 
 TEST_CASE("an interceptor can harvest a value from output as it arrives (R5.6)")
 {
-    const auto directory = freshDirectory("harvest");
+    const auto directory = sub0log::test::freshDirectory("harvest");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -346,7 +318,7 @@ TEST_CASE("an interceptor can harvest a value from output as it arrives (R5.6)")
 
 TEST_CASE("SUB0LOG_CORRELATION propagates into the child's environment (R5.4)")
 {
-    const auto directory = freshDirectory("correlation");
+    const auto directory = sub0log::test::freshDirectory("correlation");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -363,7 +335,7 @@ TEST_CASE("SUB0LOG_CORRELATION propagates into the child's environment (R5.4)")
         child.wait();
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto outputs = recordsOfKind(all, sub0log::wire::RecordKind::ChildOutput);
     REQUIRE(outputs.size() == 1u);
     CHECK(childOutputText(outputs[0]) == std::to_string(correlationSeen));
@@ -373,7 +345,7 @@ TEST_CASE("SUB0LOG_CORRELATION propagates into the child's environment (R5.4)")
 
 TEST_CASE("a line longer than the line cap is flagged truncated and counted (R9.2)")
 {
-    const auto directory = freshDirectory("longline");
+    const auto directory = sub0log::test::freshDirectory("longline");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -394,7 +366,7 @@ TEST_CASE("a line longer than the line cap is flagged truncated and counted (R9.
         CHECK(stats.truncatedLines_ == 1u);
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto outputs = recordsOfKind(all, sub0log::wire::RecordKind::ChildOutput);
     REQUIRE(outputs.size() == 2u);
 
@@ -429,7 +401,7 @@ TEST_CASE("a nonexistent executable spawns successfully but exits 127 (R9.2: vis
     // reports for "command not found" -- not a spawn() failure. There is no
     // channel back to the parent from inside the forked-but-not-yet-exec'd
     // child other than that exit code (documented in the header's contract).
-    const auto directory = freshDirectory("noexec");
+    const auto directory = sub0log::test::freshDirectory("noexec");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
 
@@ -442,7 +414,7 @@ TEST_CASE("a nonexistent executable spawns successfully but exits 127 (R9.2: vis
         CHECK(status.signal_ == 0);
     }
 
-    const auto all = readAllRecords(slurp(onlySegmentIn(directory)));
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto exits = recordsOfKind(all, sub0log::wire::RecordKind::ChildExit);
     REQUIRE(exits.size() == 1u);
     CHECK(asChildExit(exits[0]).exitCode_ == 127);
