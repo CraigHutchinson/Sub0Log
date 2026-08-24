@@ -306,3 +306,29 @@ TEST_CASE("with no Logger bound, the macro is a no-op and never evaluates its ar
 
     CHECK_FALSE(evaluated); // R1.4: a disabled site does not evaluate its arguments
 }
+
+// The live-tail property: a reader opens a segment while its producer is
+// still writing into it. Every other test here reads after the Logger is
+// gone, so this one exists to state the property deliberately -- it is what
+// makes a console view of a running process possible (docs/record-model.md),
+// and on Windows it is a share-mode decision that is easy to get wrong in a
+// way POSIX cannot express.
+TEST_CASE("a segment is readable while its producer still holds it open")
+{
+    const auto directory = makeTempDir();
+
+    auto logger = Logger::create({.directory_ = directory});
+    REQUIRE(logger.valid());
+    Logger::ScopedBind bind{logger};
+    sub0log_info(TestSubsystem, "written before the read {}", std::uint64_t{99});
+
+    // The Logger is still alive and still holds the mapping here.
+    const auto header =
+        readFile(logger.segmentPath(), sizeof(wire::SegmentHeader));
+    const auto onDisk = wire::loadUnaligned<wire::SegmentHeader>(header.data());
+    CHECK(onDisk.magic_ == wire::cMagic);
+
+    // And the mapping API can open it too, which is the path a decoder takes.
+    auto mapping = detail::FileMapping::openReadOnly(logger.segmentPath());
+    CHECK(mapping.valid());
+}

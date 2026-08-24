@@ -182,8 +182,15 @@ inline FileMapping FileMapping::create(const std::string& path, std::uint64_t by
 {
     FileMapping result{};
 #if defined(_WIN32)
+    // Sharing is the point, not a concession: a reader tails a live segment
+    // while its producer is still writing (docs/record-model.md, "the console
+    // view is a view"), and a merge reads segments of processes that are still
+    // running. CREATE_NEW is what guarantees this call is the creator; the
+    // share mode was never what protected that, and a restrictive one here
+    // silently forbids every reader. POSIX imposes no equivalent restriction,
+    // which is why only the Windows job could show this.
     const HANDLE file = ::CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE,
-                                      0 /* exclusive: no sharing while we create it */,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                       nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
         result.error_ = PlatformError{static_cast<int>(::GetLastError()), "CreateFileA"};
@@ -249,8 +256,13 @@ inline FileMapping FileMapping::openReadOnly(const std::string& path) noexcept
 {
     FileMapping result{};
 #if defined(_WIN32)
-    const HANDLE file = ::CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // FILE_SHARE_WRITE is required on the *reader's* side too: Windows checks
+    // the opener's share mode against existing handles' access, so a reader
+    // that does not permit writing cannot open a segment a producer still has
+    // open for writing -- which is exactly the live-tail case.
+    const HANDLE file = ::CreateFileA(path.c_str(), GENERIC_READ,
+                                      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                      nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
         result.error_ = PlatformError{static_cast<int>(::GetLastError()), "CreateFileA"};
         return result;
