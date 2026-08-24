@@ -9,7 +9,7 @@
 
 #include <sub0log/detail/platform.hpp>
 
-#include <doctest/doctest.h>
+#include "test_framework.hpp"
 
 #include <cstddef>
 #include <cstdlib>

@@ -4,7 +4,7 @@
 
 #include <sub0log/encode.hpp>
 
-#include <doctest/doctest.h>
+#include "support/test_framework.hpp"
 
 #include <cstddef>
 #include <cstdint>

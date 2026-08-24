@@ -4,7 +4,7 @@
 
 #include <sub0log/wire.hpp>
 
-#include <doctest/doctest.h>
+#include "support/test_framework.hpp"
 
 using namespace sub0log;
 

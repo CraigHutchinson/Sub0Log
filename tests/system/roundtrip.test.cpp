@@ -9,7 +9,7 @@
 
 #include "support/fixtures.hpp"
 
-#include <doctest/doctest.h>
+#include "support/test_framework.hpp"
 
 #include <cstdlib>
 #include <filesystem>

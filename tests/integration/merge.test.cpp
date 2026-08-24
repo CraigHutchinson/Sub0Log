@@ -6,7 +6,7 @@
 
 #include "support/segment_image.hpp"
 
-#include <doctest/doctest.h>
+#include "support/test_framework.hpp"
 
 #include <cstring>
 #include <vector>

@@ -111,9 +111,13 @@ inline constexpr const char* cCorrelationEnvVar = "SUB0LOG_CORRELATION";
     // apply and a library header must not emit a warning into every consumer
     // that includes it.
 #if defined(_MSC_VER)
-#  pragma warning(suppress : 4996)
+#  pragma warning(push)
+#  pragma warning(disable : 4996)
 #endif
     const char* const value = std::getenv(cCorrelationEnvVar);
+#if defined(_MSC_VER)
+#  pragma warning(pop)
+#endif
     if (value == nullptr || *value == '\0') {
         return 0u;
     }
