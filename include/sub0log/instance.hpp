@@ -27,8 +27,12 @@ struct Stats {
  *  Threshold checks are one relaxed load (R1.4); with no instance bound a
  *  call site costs that load and nothing else.
  *
- *  TODO(impl:producer): implement create(), the thread-local ChunkWriter
- *  cache with refill via segment_.claimChunk(), and the counters.
+ *  A Logger must reach its final address before ScopedBind binds it:
+ *  ScopedBind stores a Logger&, and the emit path holds onto the Logger*
+ *  returned by active() for the duration of one emit() call, so moving a
+ *  Logger while it is bound (or while another thread might be mid-emit)
+ *  invalidates a reference/pointer someone may be using. Construct with
+ *  create(), move it into its final storage if needed, *then* bind.
  */
 class Logger {
 public:
@@ -91,9 +95,22 @@ public:
         threshold_.store(severity, std::memory_order_relaxed);
     }
 
-    /// This thread's current writer, refilled from the segment when spent.
-    /// Returns nullptr when the segment is exhausted (caller counts a drop).
+    /// This thread's current writer: the same chunk across calls as long as
+    /// it is still bound to this Logger and this segment's generation.
+    /// Refills from the segment (claimChunk()) the first time this thread
+    /// asks, or after this Logger was recreated at the same address with a
+    /// new segment (generation mismatch). Returns nullptr when the segment
+    /// has never had a chunk to give this thread (caller counts a drop).
     [[nodiscard]] detail::ChunkWriter* currentWriter() noexcept;
+
+    /// Unconditionally claims a fresh chunk for this thread, replacing the
+    /// cache currentWriter() would otherwise keep returning. This is the
+    /// "spent" case: the emit path already tried reserve() on
+    /// currentWriter() and it did not fit, which is information only the
+    /// emit path has (currentWriter() cannot tell a chunk with 3 bytes left
+    /// from one with 3000 -- both are "valid"). Returns nullptr when the
+    /// segment is exhausted (caller counts a drop, R9.1).
+    [[nodiscard]] detail::ChunkWriter* refillWriter() noexcept;
 
     void countDrop() noexcept;
     void countTruncation() noexcept;
@@ -107,6 +124,22 @@ public:
 private:
     Logger() noexcept = default;
 
+    /// Per-thread cache behind currentWriter()/refillWriter(), keyed on
+    /// {owning Logger*, segment generation} so a thread that logs through
+    /// two different Loggers (or through a Logger recreated at the same
+    /// address) never reuses a chunk that is not both.
+    struct WriterCache {
+        Logger* owner_{nullptr};
+        std::uint64_t generation_{0};
+        detail::ChunkWriter writer_{};
+    };
+
+    [[nodiscard]] static WriterCache& cacheForThisThread() noexcept
+    {
+        thread_local WriterCache cache{};
+        return cache;
+    }
+
     // constinit-friendly: no dynamic initialisation, no latched local static.
     static inline std::atomic<Logger*> sActive_{nullptr};
 
@@ -115,5 +148,63 @@ private:
     std::atomic<std::uint64_t> dropped_{0};
     std::atomic<std::uint64_t> truncated_{0};
 };
+
+// ---------------------------------------------------------------------------
+// Implementation
+
+[[nodiscard]] inline Logger Logger::create(const Options& options) noexcept
+{
+    Logger result{};
+    result.segment_ = detail::Segment::create(options.directory_, options.stem_, options.segment_);
+    result.threshold_.store(options.threshold_, std::memory_order_relaxed);
+    return result;
+}
+
+inline Logger::Logger(Logger&& other) noexcept
+    : segment_{std::move(other.segment_)},
+      threshold_{other.threshold_.load(std::memory_order_relaxed)},
+      dropped_{other.dropped_.load(std::memory_order_relaxed)},
+      truncated_{other.truncated_.load(std::memory_order_relaxed)}
+{
+}
+
+inline Logger::~Logger() = default;
+
+[[nodiscard]] inline detail::ChunkWriter* Logger::currentWriter() noexcept
+{
+    WriterCache& cache = cacheForThisThread();
+    const std::uint64_t generation = segment_.generation();
+    if (cache.owner_ != this || cache.generation_ != generation) {
+        cache.writer_ = segment_.claimChunk();
+        cache.owner_ = this;
+        cache.generation_ = generation;
+    }
+    return cache.writer_.valid() ? &cache.writer_ : nullptr;
+}
+
+[[nodiscard]] inline detail::ChunkWriter* Logger::refillWriter() noexcept
+{
+    WriterCache& cache = cacheForThisThread();
+    cache.writer_ = segment_.claimChunk();
+    cache.owner_ = this;
+    cache.generation_ = segment_.generation();
+    return cache.writer_.valid() ? &cache.writer_ : nullptr;
+}
+
+inline void Logger::countDrop() noexcept
+{
+    dropped_.fetch_add(1u, std::memory_order_relaxed);
+}
+
+inline void Logger::countTruncation() noexcept
+{
+    truncated_.fetch_add(1u, std::memory_order_relaxed);
+}
+
+[[nodiscard]] inline Stats Logger::stats() const noexcept
+{
+    return Stats{dropped_.load(std::memory_order_relaxed),
+                truncated_.load(std::memory_order_relaxed)};
+}
 
 } // namespace sub0log

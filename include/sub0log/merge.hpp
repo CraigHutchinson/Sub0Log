@@ -8,8 +8,10 @@
 
 #include "reader.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace sub0log {
@@ -57,5 +59,77 @@ private:
     std::vector<Loaded> segments_{};
     Totals totals_{};
 };
+
+inline SegmentError Merger::addSegment(std::span<const std::byte> image)
+{
+    SegmentReader reader = SegmentReader::open(image);
+    if (!reader.valid()) {
+        return reader.error();
+    }
+
+    Loaded loaded;
+    loaded.header_ = reader.header();
+    loaded.records_ = loaded.decoder_.decodeAll(reader); // runs the visit pass
+
+    // unreadableBytes() reflects the visit pass decodeAll just ran.
+    totals_.unreadableBytes_ += reader.unreadableBytes();
+    totals_.undecodableRecords_ += loaded.decoder_.undecodableRecords();
+
+    segments_.push_back(std::move(loaded));
+    return SegmentError::Ok;
+}
+
+inline std::vector<MergedRecord> Merger::merged() const
+{
+    std::size_t total = 0;
+    for (const auto& seg : segments_) {
+        total += seg.records_.size();
+    }
+
+    std::vector<MergedRecord> out;
+    out.reserve(total);
+
+    for (const auto& seg : segments_) {
+        const std::uint64_t anchorMono = seg.header_.anchorMonoNs_;
+        const std::uint64_t anchorWall = seg.header_.anchorWallNs_;
+        const std::uint64_t processId = seg.header_.processId_;
+
+        for (const DecodedRecord& rec : seg.records_) {
+            std::uint64_t alignedNs;
+            if (rec.monoNs_ >= anchorMono) {
+                alignedNs = anchorWall + (rec.monoNs_ - anchorMono);
+            } else {
+                // rec.monoNs_ < anchorMono is only possible if the
+                // machine-wide monotonic source went backwards between the
+                // anchor reading and this record's -- clocks misbehaving,
+                // not normal operation. (rec.monoNs_ - anchorMono) would
+                // underflow a std::uint64_t and wrap to a huge value,
+                // sorting the misbehaving record as the newest thing in the
+                // merged stream; saturating at the anchor instead keeps it
+                // pinned near where it was actually written.
+                alignedNs = anchorWall;
+            }
+            out.push_back(MergedRecord{rec, processId, alignedNs});
+        }
+    }
+
+    // Ties broken by (processId, ownerThread, monoNs) for determinism
+    // (R5.2/R5.3): two records that align to the same instant still need a
+    // reproducible order across runs of the same input.
+    std::stable_sort(out.begin(), out.end(), [](const MergedRecord& a, const MergedRecord& b) {
+        if (a.alignedNs_ != b.alignedNs_) {
+            return a.alignedNs_ < b.alignedNs_;
+        }
+        if (a.processId_ != b.processId_) {
+            return a.processId_ < b.processId_;
+        }
+        if (a.record_.ownerThread_ != b.record_.ownerThread_) {
+            return a.record_.ownerThread_ < b.record_.ownerThread_;
+        }
+        return a.record_.monoNs_ < b.record_.monoNs_;
+    });
+
+    return out;
+}
 
 } // namespace sub0log
