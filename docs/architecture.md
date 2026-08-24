@@ -226,7 +226,12 @@ A `u64` correlation id in a `thread_local`, set by `CorrelationScope` (RAII,
 saves and restores), stamped into every message record. Propagation into
 children is by environment variable (`SUB0LOG_CORRELATION`), because that is
 the mechanism that survives `exec` of an unmodified binary; a `Logger` seeds
-its root correlation from that variable when present.
+its root correlation from that variable when present, and the emit path
+falls back to that root whenever no scope is active on the calling thread --
+so an unmodified cooperating binary joins the activity that spawned it with
+no wiring code. The root lives on the instance rather than in a process-wide
+latch, so a test reaches it through the same scoped binding as everything
+else (R7).
 
 ## Child processes: capture and interception (R5.5, R5.6)
 

@@ -5,6 +5,7 @@
  *         mechanism's own counters (R9).
  */
 
+#include "context.hpp"
 #include "segment.hpp"
 #include "severity.hpp"
 
@@ -112,6 +113,16 @@ public:
     /// segment is exhausted (caller counts a drop, R9.1).
     [[nodiscard]] detail::ChunkWriter* refillWriter() noexcept;
 
+    /// The activity inherited through the environment (R5.4), stamped by
+    /// the emit path whenever no CorrelationScope is active on the calling
+    /// thread; 0 when the process was not spawned inside one. Per instance
+    /// rather than a process-wide latch so tests reach it through the same
+    /// scoped binding as everything else (R7).
+    [[nodiscard]] std::uint64_t rootCorrelation() const noexcept
+    {
+        return rootCorrelation_;
+    }
+
     void countDrop() noexcept;
     void countTruncation() noexcept;
     [[nodiscard]] Stats stats() const noexcept;
@@ -144,6 +155,7 @@ private:
     static inline std::atomic<Logger*> sActive_{nullptr};
 
     detail::Segment segment_{};
+    std::uint64_t rootCorrelation_{0};
     std::atomic<Severity> threshold_{Severity::Trace};
     std::atomic<std::uint64_t> dropped_{0};
     std::atomic<std::uint64_t> truncated_{0};
@@ -156,12 +168,14 @@ private:
 {
     Logger result{};
     result.segment_ = detail::Segment::create(options.directory_, options.stem_, options.segment_);
+    result.rootCorrelation_ = detail::correlationFromEnvironment();
     result.threshold_.store(options.threshold_, std::memory_order_relaxed);
     return result;
 }
 
 inline Logger::Logger(Logger&& other) noexcept
     : segment_{std::move(other.segment_)},
+      rootCorrelation_{other.rootCorrelation_},
       threshold_{other.threshold_.load(std::memory_order_relaxed)},
       dropped_{other.dropped_.load(std::memory_order_relaxed)},
       truncated_{other.truncated_.load(std::memory_order_relaxed)}

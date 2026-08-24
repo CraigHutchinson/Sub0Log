@@ -48,8 +48,12 @@ inline thread_local std::uint64_t tCurrentCorrelationId{0};
 
 } // namespace detail
 
-/// The correlation id in scope on this thread; 0 when none. Stamped into
-/// every message record by the emit path.
+/// The correlation id in scope on this thread; 0 when none. The emit path
+/// stamps this into every message record, falling back to the Logger's
+/// root correlation (seeded from the environment, R5.4) when no scope is
+/// active -- the fallback lives on the instance, not in a process-wide
+/// latch, so a test can exercise it through the same scoped binding as
+/// everything else (R7).
 [[nodiscard]] inline std::uint64_t currentCorrelation() noexcept
 {
     return detail::tCurrentCorrelationId;
@@ -90,13 +94,14 @@ private:
 namespace detail {
 
 /// Name of the propagation variable (R5.4). A parent sets it in a child's
-/// environment; a child's Logger seeds its root correlation from it.
+/// environment; Logger::create reads it as the instance's root correlation,
+/// so a cooperating child needs no wiring code to join.
 inline constexpr const char* cCorrelationEnvVar = "SUB0LOG_CORRELATION";
 
 /// Reads cCorrelationEnvVar; 0 when absent or malformed. Not on the emit
-/// hot path -- called at most once per process/thread root, so getenv's
-/// documented lack of thread-safety with concurrent setenv is the caller's
-/// concern, same as for any other use of the environment.
+/// hot path -- called once at Logger creation, so getenv's documented lack
+/// of thread-safety with concurrent setenv is the caller's concern, same
+/// as for any other use of the environment.
 [[nodiscard]] inline std::uint64_t correlationFromEnvironment() noexcept
 {
     const char* const value = std::getenv(cCorrelationEnvVar);

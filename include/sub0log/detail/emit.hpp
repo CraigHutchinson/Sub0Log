@@ -185,7 +185,11 @@ void emit(const SiteDescriptor& site, const Args&... args) noexcept
         }
     }
 
-    const wire::MessagePayload messagePayload{site.id(), monotonicNowNs(), currentCorrelation()};
+    // A thread with no CorrelationScope active still belongs to whatever
+    // activity spawned this process (R5.4): fall back to the instance root.
+    const std::uint64_t scoped = currentCorrelation();
+    const std::uint64_t correlation = scoped != 0u ? scoped : logger->rootCorrelation();
+    const wire::MessagePayload messagePayload{site.id(), monotonicNowNs(), correlation};
     wire::storeUnaligned(slot.payload_, messagePayload);
 
     const EncodeResult encoded =

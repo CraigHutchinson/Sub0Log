@@ -109,6 +109,40 @@ TEST_CASE("a logged record round-trips typed through the file")
 }
 
 #ifndef _WIN32
+TEST_CASE("with no scope active, records carry the environment's root correlation (R5.4)")
+{
+    const auto directory = freshDirectory("rootcorr");
+
+    ::setenv("SUB0LOG_CORRELATION", "7777", 1);
+    {
+        auto logger = sub0log::Logger::create({.directory_ = directory.string()});
+        REQUIRE(logger.valid());
+        CHECK(logger.rootCorrelation() == 7777u);
+        sub0log::Logger::ScopedBind bind{logger};
+
+        // No CorrelationScope on this thread: the inherited root applies.
+        sub0log_info(cStorage, "inherited activity");
+
+        // An explicit scope overrides the root for its duration.
+        {
+            sub0log::CorrelationScope scoped{42u};
+            sub0log_info(cStorage, "scoped activity");
+        }
+    }
+    ::unsetenv("SUB0LOG_CORRELATION");
+
+    const auto image = slurp(onlySegmentIn(directory));
+    auto reader = sub0log::SegmentReader::open(image);
+    REQUIRE(reader.valid());
+    sub0log::Decoder decoder;
+    const auto records = decoder.decodeAll(reader);
+    REQUIRE(records.size() == 2);
+    CHECK(records[0].correlationId_ == 7777u);
+    CHECK(records[1].correlationId_ == 42u);
+
+    std::filesystem::remove_all(directory);
+}
+
 TEST_CASE("committed records survive a hard kill of the producer (R3.1)")
 {
     const auto directory = freshDirectory("kill");
