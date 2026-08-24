@@ -3,6 +3,8 @@
 
 #include <sub0log/context.hpp>
 
+#include "support/fixtures.hpp"
+
 #include <doctest/doctest.h>
 
 #include <cstdlib>
@@ -45,18 +47,18 @@ TEST_CASE("CorrelationScope accepts an explicit id, e.g. recovered from a parent
 
 TEST_CASE("correlationFromEnvironment parses, and is 0 on absence or garbage")
 {
-    ::unsetenv(detail::cCorrelationEnvVar);
+    test::unsetEnvVar(detail::cCorrelationEnvVar);
     CHECK(detail::correlationFromEnvironment() == 0u);
 
-    ::setenv(detail::cCorrelationEnvVar, "123456789", 1);
+    test::setEnvVar(detail::cCorrelationEnvVar, "123456789");
     CHECK(detail::correlationFromEnvironment() == 123456789u);
 
-    ::setenv(detail::cCorrelationEnvVar, "not-a-number", 1);
+    test::setEnvVar(detail::cCorrelationEnvVar, "not-a-number");
     CHECK(detail::correlationFromEnvironment() == 0u);
 
-    ::setenv(detail::cCorrelationEnvVar, "", 1);
+    test::setEnvVar(detail::cCorrelationEnvVar, "");
     CHECK(detail::correlationFromEnvironment() == 0u);
 
-    ::unsetenv(detail::cCorrelationEnvVar);
+    test::unsetEnvVar(detail::cCorrelationEnvVar);
     CHECK(detail::correlationFromEnvironment() == 0u);
 }

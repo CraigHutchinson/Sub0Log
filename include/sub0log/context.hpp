@@ -104,6 +104,15 @@ inline constexpr const char* cCorrelationEnvVar = "SUB0LOG_CORRELATION";
 /// as for any other use of the environment.
 [[nodiscard]] inline std::uint64_t correlationFromEnvironment() noexcept
 {
+    // MSVC deprecates getenv in favour of _dupenv_s, whose difference is that
+    // it hands back an allocation to free. What it protects against is
+    // retaining the returned pointer across a setenv; this call parses the
+    // value immediately and retains nothing, so the deprecation does not
+    // apply and a library header must not emit a warning into every consumer
+    // that includes it.
+#if defined(_MSC_VER)
+#  pragma warning(suppress : 4996)
+#endif
     const char* const value = std::getenv(cCorrelationEnvVar);
     if (value == nullptr || *value == '\0') {
         return 0u;

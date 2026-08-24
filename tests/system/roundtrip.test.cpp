@@ -84,7 +84,7 @@ TEST_CASE("with no scope active, records carry the environment's root correlatio
 {
     const auto directory = sub0log::test::freshDirectory("rootcorr");
 
-    ::setenv("SUB0LOG_CORRELATION", "7777", 1);
+    sub0log::test::setEnvVar("SUB0LOG_CORRELATION", "7777");
     {
         auto logger = sub0log::Logger::create({.directory_ = directory.string()});
         REQUIRE(logger.valid());
@@ -100,7 +100,7 @@ TEST_CASE("with no scope active, records carry the environment's root correlatio
             sub0log_info(cStorage, "scoped activity");
         }
     }
-    ::unsetenv("SUB0LOG_CORRELATION");
+    sub0log::test::unsetEnvVar("SUB0LOG_CORRELATION");
 
     const auto image = sub0log::test::slurp(sub0log::test::onlySegmentIn(directory));
     auto reader = sub0log::SegmentReader::open(image);

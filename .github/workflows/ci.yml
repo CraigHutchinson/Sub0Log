@@ -69,5 +69,21 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Debug --output-on-failure
 
-# A benchmarks-smoke job (build + --list, never a pass/fail number gate)
-# joins this file in the commit that adds the benchmark suite.
+  benchmarks-smoke:
+    # Keeps the KPI suite compiling and runnable. Deliberately not a
+    # pass/fail number gate: shared CI runners produce noisy timings, and a
+    # noisy gate teaches people to ignore it. Numbers come from deliberate
+    # runs on known hardware (benchmarks/README.md).
+    name: benchmarks-smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DSUB0LOG_BUILD_BENCHMARKS=ON -DSUB0LOG_BUILD_TESTING=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Smoke
+        run: ./build/benchmarks/Sub0LogBenchmarks --list

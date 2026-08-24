@@ -147,7 +147,7 @@ TEST_CASE("encodeArgs round-trips a mix of fixed and variable arguments")
         detail::encodeArgs(buf, static_cast<std::uint32_t>(sizeof(buf)), std::uint64_t{0xDEADBEEFu}, name,
                            false);
 
-    const std::uint32_t expected = 8u + (2u + name.size()) + 1u;
+    const auto expected = static_cast<std::uint32_t>(8u + (2u + name.size()) + 1u);
     CHECK(result.bytes_ == expected);
     CHECK(detail::upperBoundSize(std::uint64_t{0xDEADBEEFu}, name, false) == expected);
 

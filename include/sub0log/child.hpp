@@ -190,7 +190,12 @@ private:
     /// Null until a successful spawn(); the capture threads' only handle
     /// onto shared state (see detail::ChildCaptureState's own comment).
     std::unique_ptr<detail::ChildCaptureState> state_{};
-    std::vector<std::jthread> captureThreads_{};
+    /// std::thread rather than std::jthread: Apple's libc++ ships no
+    /// jthread, and macOS is first-class (R8.1). Nothing here wanted
+    /// jthread's stop token -- capture ends at EOF, which the child's death
+    /// delivers -- and wait() joins explicitly, so the only property lost is
+    /// the auto-join this class already implements.
+    std::vector<std::thread> captureThreads_{};
     bool waited_{false};
     ExitStatus exitStatus_{};
 
@@ -393,7 +398,7 @@ inline ChildProcess::ExitStatus ChildProcess::wait() noexcept
     // Capture threads first: they exit at EOF, which the child's death
     // guarantees once its stdout/stderr fds close -- joining before reaping
     // can never deadlock on a child that is still writing.
-    for (std::jthread& t : captureThreads_) {
+    for (std::thread& t : captureThreads_) {
         if (t.joinable()) {
             t.join();
         }
@@ -694,7 +699,7 @@ inline void ChildProcess::captureLoop(detail::ChildCaptureState& state, const in
         return result;
     } catch (...) {
         // spawn() is noexcept: an allocation on this cold path (argv/env
-        // strings, the capture state, or -- past fork() -- a jthread's own
+        // strings, the capture state, or -- past fork() -- a thread's own
         // thread creation) may throw, and that must become an invalid
         // ChildProcess (R9.2: visible, not a crash), with whatever this call
         // already owns reclaimed rather than leaked -- a half-started child

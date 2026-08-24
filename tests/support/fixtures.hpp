@@ -12,6 +12,7 @@
 #include <doctest/doctest.h>
 
 #include <cstddef>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -41,6 +42,27 @@ inline std::vector<std::byte> slurp(const std::filesystem::path& path)
                           std::istreambuf_iterator<char>{}};
     const auto* first = reinterpret_cast<const std::byte*>(raw.data());
     return {first, first + raw.size()};
+}
+
+/// setenv/unsetenv are POSIX; MSVC has _putenv_s, where an empty value is
+/// how a variable is removed. Tests say what they mean and this pair
+/// absorbs the difference.
+inline void setEnvVar(const char* const name, const char* const value)
+{
+#if defined(_WIN32)
+    ::_putenv_s(name, value);
+#else
+    ::setenv(name, value, 1);
+#endif
+}
+
+inline void unsetEnvVar(const char* const name)
+{
+#if defined(_WIN32)
+    ::_putenv_s(name, "");
+#else
+    ::unsetenv(name);
+#endif
 }
 
 /// The single .s0l segment a test expects its Logger to have produced;
