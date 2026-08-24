@@ -226,9 +226,43 @@ A `u64` correlation id in a `thread_local`, set by `CorrelationScope` (RAII,
 saves and restores), stamped into every message record. Propagation into
 children is by environment variable (`SUB0LOG_CORRELATION`), because that is
 the mechanism that survives `exec` of an unmodified binary; a `Logger` seeds
-its root correlation from that variable when present. Capturing a
-non-cooperating child's stdout/stderr as attributed records (R5.5) is phase 3
--- the record kinds it needs are reserved now.
+its root correlation from that variable when present.
+
+## Child processes: capture and interception (R5.5, R5.6)
+
+A third-party executable will not write records in this format no matter what
+it is handed, so its output streams are the whole interface. `child.hpp`
+gives the parent one primitive:
+
+`ChildProcess::spawn(options)` pipes the child's stdout/stderr, writes a
+**ChildStart** record (command line, OS pid, the correlation id in scope at
+spawn), and runs one capture thread per stream. Each complete line becomes a
+**ChildOutput** record; `wait()` drains the pipes to EOF, reaps, and writes
+**ChildExit** (exit code or signal). The three payloads join on a parent-side
+`childId` ordinal rather than the pid, because pids recycle; a line's
+correlation is reached through its ChildStart, an equality join (R6.2),
+rather than repeating eight bytes per captured line.
+
+Attribution answers R5.5 in full: what was run, what it printed, how it
+ended, and which activity spawned it -- with `SUB0LOG_CORRELATION` also
+stamped into the child's environment so a *cooperating* descendant joins the
+same activity through R5.4, and a non-cooperating one simply ignores it.
+
+**Interception (R5.6)** rides the same path because the path can afford it:
+capture threads run at pipe-buffer pace, milliseconds not nanoseconds, so a
+caller-supplied callback there costs nothing that matters. The registered
+`LineInterceptor` sees each line before its record is written and returns Log
+or Suppress -- enough to detect a readiness message, harvest a value from
+output, or drop noise at source. Suppressions are counted (R9.1 treats
+deliberate suppression like a drop: visible), and an exception escaping the
+interceptor logs the line anyway -- capture must not die because a matcher
+did. The same hook is deliberately *not* offered on the in-process emit path:
+a callback there would reintroduce exactly the unbounded producer work R1
+forbids, and R5.6 now rules it out in writing.
+
+The capture machinery is allowed to allocate (line buffers, the threads) --
+this is the cold path the blob argument in `record-model.md` describes.
+Over-long lines are split at the record cap with the truncation flagged.
 
 ## Reader, decoder, merger (R2, R3.3, R5.2)
 
@@ -275,8 +309,12 @@ gates all of it, so a consumer embedding the library via
   the platform interface, compiled but CI-unverified), reader/decoder/merger,
   scoped binding, correlation, drop counters, tests including a
   producer-round-trip and a kill-the-writer recovery test.
-- **v2**: continuation chains, blob channel, the dlopen ABI test, Windows CI.
-- **v3**: child stdout/stderr capture (R5.5), segment rollover, CLI.
+- **v1 stretch**: child capture and interception (R5.5/R5.6) -- format and
+  API are in v1 (`child.hpp`, the three Child* payloads); the POSIX
+  implementation lands as this branch's stretch goal.
+- **v2**: continuation chains, blob channel, the dlopen ABI test, Windows CI
+  (including the Windows child-capture path).
+- **v3**: segment rollover, CLI.
 
 ## Answers to the open questions in REQUIREMENTS.md
 

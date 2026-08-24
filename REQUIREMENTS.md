@@ -114,9 +114,19 @@ attributed to that child, carrying its command line, exit status and the
 correlation id in scope when it was spawned. The library must not require a
 child to link anything.
 
+**R5.6** Captured child output is observable as it arrives, not only after the
+fact. A caller may register an interceptor that sees each captured line before
+it is written -- to detect a readiness message, harvest a value, or suppress
+noise -- and a suppressed line is counted, never silently gone (R9.1 applies to
+deliberate suppression as much as to drops). The interceptor runs on the
+capture thread, which is a cold path; it must not be offered on the hot
+producer path, where a callback would reintroduce exactly the unbounded work
+R1 exists to forbid.
+
 *Rules out:* a shared ring buffer with a cross-process claim protocol, a
-collector process on the critical path, ordering by arrival at a merger, and any
-design where a spawned tool's diagnostics are simply lost.
+collector process on the critical path, ordering by arrival at a merger, any
+design where a spawned tool's diagnostics are simply lost, and a message-tap
+hook on the in-process emit path.
 
 ## 6. Correlation is a field
 

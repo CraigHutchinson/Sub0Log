@@ -64,7 +64,9 @@ enum class RecordKind : std::uint8_t {
     SiteDefinition = 2,///< Constant half; precedes the site's first Message.
     Continuation = 3,  ///< Bounded spill of the preceding record's payload.
     Blob = 4,          ///< Reserved: cold bulk payloads (v2).
-    ChildOutput = 5,   ///< Reserved: captured child stdout/stderr (v3, R5.5).
+    ChildOutput = 5,   ///< One captured line of a child's stdout/stderr (R5.5).
+    ChildStart = 6,    ///< A third-party child was spawned: command, correlation.
+    ChildExit = 7,     ///< That child ended: exit code or signal.
 };
 
 enum RecordFlags : std::uint8_t {
@@ -203,6 +205,50 @@ struct MessagePayload {
 };
 static_assert(std::is_trivially_copyable_v<MessagePayload>);
 static_assert(sizeof(MessagePayload) == 24u);
+
+// Child capture (R5.5): a non-cooperating child's output becomes records
+// attributed to that child. The three payloads join on childId_ -- a
+// parent-side ordinal, not the OS pid, because pids are reused. ChildOutput
+// deliberately carries no correlation id: the ChildStart record carries the
+// one in scope at spawn, and joining through childId_ is an equality test
+// (R6.2) without repeating eight bytes on every captured line.
+
+struct ChildStartPayload {
+    std::uint64_t childId_;
+    std::uint64_t childPid_;      ///< OS pid, for cross-reference with other tooling.
+    std::uint64_t correlationId_; ///< In scope when the child was spawned (R5.5).
+    std::uint64_t monoNs_;
+    // Tail: u16 commandLen + command-line bytes (truncation flagged).
+};
+static_assert(std::is_trivially_copyable_v<ChildStartPayload>);
+static_assert(sizeof(ChildStartPayload) == 32u);
+
+enum ChildStream : std::uint8_t {
+    cChildStdout = 1,
+    cChildStderr = 2,
+};
+
+struct ChildOutputPayload {
+    std::uint64_t childId_;
+    std::uint64_t monoNs_;   ///< Capture time in the parent; the child has no clock here.
+    std::uint8_t stream_;    ///< ChildStream.
+    std::uint8_t reserved0_;
+    std::uint16_t reserved1_;
+    std::uint32_t reserved2_;
+    // Tail: the captured bytes -- one line, newline stripped, no inner
+    // length field: the record's payloadBytes already bounds it.
+};
+static_assert(std::is_trivially_copyable_v<ChildOutputPayload>);
+static_assert(sizeof(ChildOutputPayload) == 24u);
+
+struct ChildExitPayload {
+    std::uint64_t childId_;
+    std::uint64_t monoNs_;
+    std::int32_t exitCode_; ///< Meaningful when signal_ is 0.
+    std::int32_t signal_;   ///< Terminating signal, 0 if exited normally.
+};
+static_assert(std::is_trivially_copyable_v<ChildExitPayload>);
+static_assert(sizeof(ChildExitPayload) == 24u);
 
 struct SiteDefinitionPayload {
     std::uint64_t siteId_;

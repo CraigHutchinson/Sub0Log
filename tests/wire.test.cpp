@@ -50,4 +50,7 @@ TEST_CASE("on-disk struct sizes are pinned")
     CHECK(sizeof(wire::ChunkHeader) == 32u);
     CHECK(sizeof(wire::MessagePayload) == 24u);
     CHECK(sizeof(wire::SiteDefinitionPayload) == 24u);
+    CHECK(sizeof(wire::ChildStartPayload) == 32u);
+    CHECK(sizeof(wire::ChildOutputPayload) == 24u);
+    CHECK(sizeof(wire::ChildExitPayload) == 24u);
 }
