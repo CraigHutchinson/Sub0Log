@@ -45,6 +45,9 @@ public:
     /// SegmentError::Ok, or why the segment could not be opened at all.
     [[nodiscard]] SegmentError addSegment(std::span<const std::byte> image);
 
+    /// The returned records borrow twice: site_ points into this Merger's
+    /// decoders, and string arguments view the added images -- so both the
+    /// Merger and every image must outlive the result.
     [[nodiscard]] std::vector<MergedRecord> merged() const;
     [[nodiscard]] Totals totals() const noexcept { return totals_; }
 
