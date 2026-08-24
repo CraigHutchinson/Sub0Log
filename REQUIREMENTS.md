@@ -142,9 +142,7 @@ for the duration of a test.
 **R8.1** Windows/MSVC, Linux and macOS with Clang and GCC, all first-class.
 Platform-specific code confined to a mapping layer with one interface.
 
-**R8.2** C++26 target, C++23 floor: every header compiles as C++23 until all
-first-class toolchains ship C++26, and C++26-only features are gated on their
-feature-test macros. No compiler extensions on any path where a standard feature
+**R8.2** C++23. No compiler extensions on any path where a standard feature
 exists; where an extension is genuinely required, it is isolated and documented
 with what was tried instead.
 

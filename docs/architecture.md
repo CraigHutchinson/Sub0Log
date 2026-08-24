@@ -12,30 +12,23 @@ restated here.
 
 ## Language standard (R8.1, R8.2)
 
-The project targets **C++26, with a C++23 portability floor**.
+**C++23, unconditionally.** Every header compiles as C++23
+(`target_compile_features(... cxx_std_23)`), and the tests build the same way.
 
-The forcing facts: MSVC has no `/std:c++26` yet, GCC grows `-std=c++26` only at
-GCC 14, and CMake's feature table cannot request `cxx_std_26` from every
-toolchain the project calls first-class. Demanding C++26 unconditionally would
-demote two of the three first-class platforms, which R8.1 forbids.
+The supporting facts, kept because they will be asked again: MSVC has no
+`/std:c++26` yet, GCC grows `-std=c++26` only at GCC 14, and CMake's feature
+table cannot request `cxx_std_26` from every toolchain the project calls
+first-class -- so anything above C++23 today would demote platforms that R8.1
+keeps first-class. When the toolchains catch up, moving the baseline is a
+one-line CMake change plus a style-guide edit, and nothing in the format or
+the API is shaped by the standard choice.
 
-So the split is:
-
-- **Every header must compile as C++23.** That is the interface contract
-  (`target_compile_features(... cxx_std_23)`), and it is what MSVC and GCC 13
-  consumers get.
-- **The build prefers C++26 wherever the toolchain provides it.** Tests and
-  examples are compiled in C++26 mode when the compiler accepts it
-  (`SUB0LOG_CXX_STANDARD`, default 26, falling back with a status message
-  rather than an error).
-- **C++26-only features are gated on their feature-test macros**, never on a
-  compiler identity, and always with a C++23 spelling beside them. When the
-  last first-class toolchain ships C++26, the floor moves and the gates come
-  out.
-
-This is the same posture the style guide takes -- prefer the newest form the
-project's standard supports -- applied to a project whose standard is, for the
-moment, two-valued.
+One library-availability note discovered the hard way: libstdc++ 13 withholds
+`<expected>` from Clang < 19 (its guard wants a concepts feature-test value
+Clang defines only from 19), so `std::expected` -- though C++23 on paper -- is
+not usable across the first-class matrix. Fallible constructors therefore
+return their object with `valid()` false and an `error()` beside it, which
+also keeps the producer path exception-free.
 
 ## Component map
 

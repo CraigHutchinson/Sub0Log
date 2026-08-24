@@ -14,7 +14,7 @@ add_executable(Sub0LogTests ${SUB0LOG_TEST_SOURCES})
 target_link_libraries(Sub0LogTests PRIVATE Sub0Log::Sub0Log doctest::doctest)
 
 set_target_properties(Sub0LogTests PROPERTIES
-    CXX_STANDARD ${SUB0LOG_CXX_STANDARD}
+    CXX_STANDARD 23
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF)
 
