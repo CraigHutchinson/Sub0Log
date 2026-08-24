@@ -13,11 +13,29 @@ Three ctest labels, three executables, one discipline each:
 | `integration` | `Sub0LogIntegrationTests` | components against real files or hand-built images, one process |
 | `system` | `Sub0LogSystemTests` | whole-library promises: hard kills, several processes, spawned children |
 
-Run one with `ctest -L unit` (or `integration`, `system`). CI runs `unit` and
-`integration` on every configuration; `system` runs where the platform arm
-exists (POSIX in v1 -- the Windows arms of `fork`-based tests and child
-capture are v2, and those tests are compiled out there rather than skipped
-silently).
+Run one with `ctest -L unit` (or `integration`, `system`).
+
+### What runs where
+
+Measured from the CI matrix, not estimated:
+
+| platform | unit | integration | system | total |
+|---|---:|---:|---:|---:|
+| Linux (GCC, Clang, GCC+ASan/UBSan) | 17 | 22 | 13 | **52** |
+| macOS (AppleClang) | 17 | 22 | 13 | **52** |
+| Windows (MSVC) | 17 | 22 | 1 | **40** |
+
+`unit` and `integration` run identically everywhere -- the format, the
+encoder, the reader and the recovery paths are all platform-agnostic by
+construction, and that is the point of keeping them free of process and
+filesystem machinery.
+
+The 12 `system` tests Windows does not run are the ones that `fork` or spawn
+a child: the hard-kill test, the two-process merge, the environment-root
+correlation test, and the nine child-capture tests. Their Windows arms are
+v2 (`docs/architecture.md` phasing). They are **compiled out** on Windows
+rather than skipped at runtime, so the count differing between platforms is
+visible in the test output rather than hidden behind a green tick.
 
 ## Test doubles, and where mocking deliberately is not used
 
@@ -72,7 +90,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R6 correlation is a field | unit scope tests; system round-trip asserts equality on the field |
 | R7.1 scoped instance, drain sync | every integration/system test uses `ScopedBind` over a temp dir |
 | R7.2 no test-only branches | discipline + review; nothing in `include/` references a test macro |
-| R8.1 three platforms | CI matrix (Linux GCC+Clang+sanitizers, macOS, Windows/MSVC) |
+| R8.1 three platforms | CI matrix, all six jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 52/52; Windows/MSVC runs 40/40 (see "What runs where") |
 | R8.2 C++23, no extensions | `CXX_EXTENSIONS OFF` everywhere; CI compilers enforce |
 | R8.3 no producer deps | build: the library target links nothing; doctest/nanobench live in test/bench targets only |
 | R9.1 drops counted | integration "Logger counts drops once a tiny segment is exhausted"; child stats tests |
@@ -95,8 +113,9 @@ cost. `--json <path>` exports every result for trend collection; see
 ## Known gaps, in one place
 
 - R4 dlopen ABI round-trip (v2).
-- Windows: compiles in CI from v1 on; `system` tests and child capture need
-  the v2 Windows arms before the label runs there.
+- Windows runs 40 of the 52 tests (see "What runs where"); the 12 it does
+  not run are the POSIX-only `system` tests, which need the v2 Windows arms
+  for process spawning and child capture.
 - Continuation-chain and Blob record kinds: format reserved, no writer yet,
   so no tests beyond the reader skipping them.
 - Power-loss durability: out of scope by design (`hard-kill.md`), not a gap.
