@@ -82,6 +82,12 @@ inline ChunkWriter::ChunkWriter(std::span<std::byte> body) noexcept
 
 [[nodiscard]] inline ChunkWriter::Reservation ChunkWriter::reserve(std::uint32_t payloadBytes) noexcept
 {
+    // The head word carries the payload length as u16; a payload that would
+    // wrap it cannot be represented, whatever the chunk size says. Refusing
+    // here covers every caller (chunks above 64 KiB are configurable).
+    if (payloadBytes > 0xFFFFu) {
+        return Reservation{};
+    }
     const std::uint32_t padded = wire::paddedPayload(payloadBytes);
     const std::uint32_t total = 8u + padded;
     if (!valid() || total > remaining()) {

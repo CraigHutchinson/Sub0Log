@@ -47,9 +47,11 @@ was wrong first and say why -- that is deliberate.
 
 ## Status
 
-Early. The design is settled enough to build against; the implementation is not
-here yet. `REQUIREMENTS.md` is the contract this library is being built to, and
-is the right place to disagree before code exists.
+Early, but running. The v1 producer and reader paths are implemented and
+tested -- including a round-trip through a real file, records surviving a
+hard-killed producer, and a two-process merge -- with the architecture in
+`docs/architecture.md`. `REQUIREMENTS.md` is the contract this library is
+built to, and remains the right place to disagree.
 
 ## License
 

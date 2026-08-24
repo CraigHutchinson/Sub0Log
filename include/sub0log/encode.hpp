@@ -220,7 +220,9 @@ template <Encodable... Args>
     EncodeResult result{};
     std::uint32_t offset = 0;
 
-    auto encodeOne = [&]<typename T>(const T& value) {
+    // maybe_unused: with an empty pack the fold below never names the
+    // lambda, and GCC 13 warns on exactly that.
+    [[maybe_unused]] auto encodeOne = [&]<typename T>(const T& value) {
         const std::uint32_t left = offset <= capacity ? capacity - offset : 0u;
         if constexpr (std::same_as<Decayed<T>, std::string_view>) {
             const std::string_view sv{value};
