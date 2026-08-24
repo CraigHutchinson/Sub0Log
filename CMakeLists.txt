@@ -10,8 +10,8 @@ project(Sub0Log VERSION 0.1.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 
 option(SUB0LOG_BUILD_TESTING    "Build unit-tests" ON)
-option(SUB0LOG_BUILD_EXAMPLES   "Build examples"   OFF)
-option(SUB0LOG_BUILD_BENCHMARKS "Build the KPI benchmark suite" OFF)
+option(SUB0LOG_BUILD_EXAMPLES   "Build the runnable examples" OFF)
+option(SUB0LOG_BUILD_BENCHMARKS "Build the KPI benchmark suite and the stress harness" OFF)
 
 if(SUB0LOG_BUILD_TESTING AND NOT IS_SUBPROJECT)
     enable_testing()
@@ -48,4 +48,12 @@ endif()
 
 if(SUB0LOG_BUILD_BENCHMARKS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/CMakeLists.txt")
     add_subdirectory(benchmarks)
+endif()
+
+# Examples are consumer code: they include <sub0log/...> and link the same
+# target a consumer would. When testing is also on they are registered as
+# ctest smoke tests (label `example`), because an example that nobody builds
+# is an example that has already stopped compiling.
+if(SUB0LOG_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
+    add_subdirectory(examples)
 endif()
