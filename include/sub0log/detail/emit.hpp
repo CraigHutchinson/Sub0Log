@@ -131,7 +131,7 @@ void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
     wire::RecordHead head{};
     head.payloadBytes_ = static_cast<std::uint16_t>(p - slot.payload_);
     head.kind_ = wire::RecordKind::SiteDefinition;
-    head.flags_ = truncated ? wire::cFlagTruncated : std::uint8_t{0};
+    head.flags_ = truncated ? static_cast<std::uint8_t>(wire::cFlagTruncated) : std::uint8_t{0};
 
     writer->commit(slot, head);
     if (truncated) {
@@ -196,7 +196,7 @@ void emit(const SiteDescriptor& site, const Args&... args) noexcept
     head.payloadBytes_ =
         static_cast<std::uint16_t>(sizeof(wire::MessagePayload) + encoded.bytes_);
     head.kind_ = wire::RecordKind::Message;
-    head.flags_ = encoded.truncated_ ? wire::cFlagTruncated : std::uint8_t{0};
+    head.flags_ = encoded.truncated_ ? static_cast<std::uint8_t>(wire::cFlagTruncated) : std::uint8_t{0};
 
     writer->commit(slot, head);
 
