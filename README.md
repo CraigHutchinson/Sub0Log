@@ -112,11 +112,13 @@ hard-killed producer, and a two-process merge -- with the architecture in
 `docs/architecture.md`. `REQUIREMENTS.md` is the contract this library is
 built to, and remains the right place to disagree.
 
-What is *not* finished is written down rather than left to be discovered:
-`docs/adoption-friction.md` is the register of what a new consumer actually
-hits -- measured, not guessed -- separating the bugs from the gaps from the
-friction that is deliberate. Read it before adopting; it will save you the
-afternoon it cost to find each entry.
+What a new consumer actually hits is written down rather than left to be
+discovered: `docs/adoption-friction.md` is the register -- measured, not
+guessed -- of the bugs, the gaps and the friction that is deliberate, each
+with what was done about it. Everything in it is resolved except a plugin
+built with hidden visibility getting its own instance pointer, which needs
+the C ABI (R4) that is scheduled for v2; until then that case is at least
+loud rather than silent.
 
 ## License
 

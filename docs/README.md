@@ -88,11 +88,13 @@ variable-length payloads.
 building, but what a consumer hits after. Each entry was produced by writing
 the code someone would plausibly write and recording what happened -- a
 compile, a probe, a measurement -- and each is marked as a bug, a gap, or
-friction kept on purpose. It exists because the one bug in that class found
-so far (a forked child silently overwriting its parent's records) was
-invisible to every requirement we had, and the way to stop that recurring is
-to keep testing the library the way it will be used rather than the way it
-was specified.
+friction kept on purpose, with what was done about it appended in bold. It
+exists because the first bug in that class (a forked child silently
+overwriting its parent's records) was invisible to every requirement we had,
+and the way to stop that recurring is to keep testing the library the way it
+will be used rather than the way it was specified. Every item in it is
+resolved except the plugin's duplicated instance, which needs R4's C ABI --
+and one of them, R9.3, became a requirement rather than a fix.
 
 ## On sourcing
 
