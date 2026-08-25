@@ -9,7 +9,16 @@ Two directions that look like one and are not:
    template, and potentially specialised *per call site* for deep,
    performance-critical regions.
 
-`vnext-frontend-backend.md` established where the backend seam may go and
+**Two naming decisions come from `prior-art-backends-and-memory.md`, and the
+rest of this file uses them.** "Backend" is Boost.Log's word for a sink
+behind a record queue and a worker thread -- the arrangement `hard-kill.md`
+rejects -- so the policy is a `ChunkSource`, or storage policy, and the
+public API never says frontend/backend. And a per-region buffer is a
+**channel**, LTTng's word for a named group of events with its own buffer
+configuration, rather than an "arena", which suggests the allocator this
+design exists to keep away from the emit path.
+
+`vnext-frontend-backend.md` established where the storage seam may go and
 why the obvious queue-shaped split is off the table. This file takes the
 next step: what the ladder's rungs actually are, and -- the part that needs
 care -- what "inject an allocator" can and cannot mean in a library whose
@@ -71,14 +80,19 @@ needs nothing new.
 Sketch, per call site:
 
 ```cpp
-// Static storage, sized for this region, claimed once.
-constinit sub0log::MemoryArena<64 * 1024> cControlLoopArena;
+// Static storage, sized for this region, claimed once. "Channel" is
+// LTTng's word for exactly this and carries the right meaning already.
+constinit sub0log::Channel<64 * 1024> cControlLoopChannel;
 
 void controlLoopStep() {
     // Same macro family, same record, different destination.
-    sub0log_debug_to(cControlLoopArena, cControl, "step {} err {}", tick, error);
+    sub0log_debug_to(cControlLoopChannel, cControl, "step {} err {}", tick, error);
 }
 ```
+
+LTTng configures channels by sub-buffer size and count and states the cost
+in the same place -- more memory -- so this should too, rather than
+presenting a channel as free isolation.
 
 What this buys, and why it is worth a distinct spelling:
 
@@ -100,6 +114,13 @@ a region silently running dry is exactly the invisible failure R9.1 exists
 to prevent.
 
 ### (b) Off the hot path, an allocator is the right tool -- and there is real work for it
+
+The reason is not performance, and getting that wrong is how this feature
+gets rejected. spdlog's maintainer turned down an allocator PR on the
+grounds that spdlog allocates mainly at startup, which was true and did not
+answer the requester, who needed every byte attributable to a console
+memory budget regardless of how rarely it was spent. Budget accountability
+is a separate requirement from latency, and it is the one this serves.
 
 The places this library actually allocates are all cold, and all of them
 are reasonable to hand to a consumer's allocator:
@@ -146,6 +167,14 @@ way `MemorySegment` says it gives up durability.
    useful to a bounded decoding tool.
 4. String policy in `Logger::Options`. Last, smallest, only matters to
    targets that have already taken rungs 1 and 2.
+
+Throughout, the usability constraint is not negotiable and has a concrete
+failure mode to design against: quill's issue #609, where a component built
+with custom options and one built with defaults would not interoperate. A
+policy that escapes into the types an ordinary consumer reads has turned a
+convenience into an interoperability problem. Default template argument,
+`Logger` unchanged, policies invisible unless asked for, nothing global and
+mutable.
 
 Steps 1 and 2 are the ones that change what the library can do; 3 and 4
 change what it costs. None of them touch the wire format, which is what

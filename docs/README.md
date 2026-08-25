@@ -56,6 +56,14 @@ instead, the fixed costs per thread and per call site, and an honest gap
 analysis for memory-restricted targets -- which are not in scope, but are
 closer than they look.
 
+**`prior-art-backends-and-memory.md`** checks that design against what
+already exists, and changes two of its decisions: Boost.Log's
+frontend/backend already names a queue-and-worker split we reject, so the
+policy is a storage policy; and a per-region buffer is LTTng's *channel*,
+whose blast-radius argument and memory cost are already documented there. It
+also records how the same allocator question went in spdlog, and why the
+answer was right about the hot path and wrong about the requirement.
+
 **`vnext-backends-and-memory.md`** is the fuller vNext design: a selectable
 backend ladder from a naive in-memory store up to the multi-process durable
 one, and how memory becomes customisable without putting an allocator hook
