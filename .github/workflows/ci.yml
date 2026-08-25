@@ -86,6 +86,38 @@ jobs:
       - name: Run the ladder
         run: ctest --test-dir build -L example --output-on-failure
 
+  packaging:
+    # find_package(Sub0Log) is real infrastructure (docs/adoption-friction.md
+    # 1.1), not something to trust by reading the CMakeLists.txt: this job
+    # builds the library, then drives tests/packaging/drive.cmake, which
+    # installs it to a throwaway prefix and configures a from-scratch
+    # consumer project against nothing but that prefix. Ubuntu is the
+    # minimum; Windows is included too because install-prefix path bugs
+    # (backslashes, case, multi-config output dirs) are the ones that hide
+    # on Linux and surface there, and the test itself runs in low single-
+    # digit seconds so the second platform costs almost nothing.
+    name: packaging-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        if: runner.os != 'Windows'
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+      - name: Configure (Windows)
+        if: runner.os == 'Windows'
+        run: cmake -S . -B build
+      - name: Build
+        run: cmake --build build --config Debug
+      - name: Run the packaging test
+        run: ctest --test-dir build -C Debug -L packaging --output-on-failure
+
   stress-quick:
     # The stress harness asserts invariants under load rather than measuring,
     # so unlike the KPI numbers it *is* a legitimate pass/fail gate. --quick

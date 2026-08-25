@@ -50,3 +50,9 @@ endfunction()
 sub0log_add_test_category(Unit)
 sub0log_add_test_category(Integration)
 sub0log_add_test_category(System)
+
+# Not a fourth doctest category (sub0log_add_test_category): it doesn't
+# exercise wire.hpp/encode.hpp against the in-tree target at all, it proves
+# an out-of-tree find_package(Sub0Log) works against an installed one.
+# Different question, different mechanism -- see tests/packaging/CMakeLists.txt.
+add_subdirectory(packaging)

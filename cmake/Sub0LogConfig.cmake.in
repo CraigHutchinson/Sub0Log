@@ -1,0 +1,11 @@
+@PACKAGE_INIT@
+
+# Sub0Log is header-only with zero third-party dependencies in the producer
+# path (REQUIREMENTS.md R8.3), so there is nothing for a consumer's
+# find_package(Sub0Log) to transitively find. No find_dependency() calls,
+# on purpose -- adding one here would be reintroducing a dependency this
+# library deliberately does not have.
+
+include("${CMAKE_CURRENT_LIST_DIR}/Sub0LogTargets.cmake")
+
+check_required_components(Sub0Log)
