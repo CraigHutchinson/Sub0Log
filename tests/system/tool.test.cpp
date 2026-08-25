@@ -29,15 +29,30 @@ namespace {
 constexpr sub0log::SubsystemId cStorage{3};
 constexpr sub0log::SubsystemId cNetwork{4};
 
-/// Runs the tool with `arguments`, captures stdout to a file and returns it.
-/// Quoting is deliberate: a test directory path contains a temp prefix that
-/// is not guaranteed to be free of spaces.
+/// Runs the tool with `arguments`, captures stdout and stderr to a file and
+/// returns what it wrote.
+///
+/// Two things here are Windows, and both cost a red CI run to find. The
+/// path CMake hands over uses forward slashes, which `cmd.exe` reads as
+/// switch introducers rather than separators ("The filename, directory name,
+/// or volume label syntax is incorrect"), so it is put through
+/// make_preferred() first. And `cmd.exe` strips the first and last quote of
+/// a command line that begins with one, which mangles a quoted executable
+/// path followed by quoted arguments -- the documented answer is an extra
+/// enclosing pair for it to eat. Quoting at all is not optional either way:
+/// a temp directory is not guaranteed to be free of spaces.
 [[nodiscard]] std::string runTool(const std::string& arguments,
                                   const std::filesystem::path& outputPath,
                                   int& exitCode)
 {
-    const std::string command = std::string{"\""} + SUB0LOG_CAT_PATH + "\" " + arguments
-                              + " > \"" + outputPath.string() + "\" 2>&1";
+    const std::string exe = std::filesystem::path{SUB0LOG_CAT_PATH}.make_preferred().string();
+    const std::string out = std::filesystem::path{outputPath}.make_preferred().string();
+
+    std::string command = "\"" + exe + "\" " + arguments + " > \"" + out + "\" 2>&1";
+#if defined(_WIN32)
+    command = "\"" + command + "\"";
+#endif
+
     exitCode = std::system(command.c_str());
     std::ifstream in{outputPath};
     return std::string{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
