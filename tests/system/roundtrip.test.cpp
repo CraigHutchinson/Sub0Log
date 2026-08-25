@@ -214,6 +214,79 @@ TEST_CASE("two processes, one merged stream, ordered by anchored time (R5)")
 
     std::filesystem::remove_all(directory);
 }
+
+// A forked child inherits three things at once: the shared mapping (it
+// survives fork), the parent's bound Logger, and this thread's writer cache
+// -- pointing at the same chunk, at the same offset, as the parent. Without
+// a fork handler both processes then write the same bytes to the same
+// addresses and the last writer wins. Measured before the handler existed:
+// 41 records emitted across a fork, 21 decodable afterwards, with drops,
+// damage and undecodable all reporting zero -- the invisible loss R9.1
+// exists to forbid. The child is therefore detached, and this pins both
+// halves: the child finds nothing bound, and every one of the parent's
+// records survives.
+TEST_CASE("a forked child is detached rather than overwriting the parent's chunk")
+{
+    const auto directory = sub0log::test::freshDirectory("forkdetach");
+
+    constexpr int cParentRecords = 20;
+    constexpr int cChildAttempts = 20;
+
+    auto logger = sub0log::Logger::create({.directory_ = directory.string()});
+    REQUIRE(logger.valid());
+    {
+        sub0log::Logger::ScopedBind bind{logger};
+        REQUIRE_FALSE(sub0log::Logger::detachedByFork());
+
+        for (int i = 0; i < cParentRecords; ++i) {
+            sub0log_info(cStorage, "parent {}", static_cast<std::uint64_t>(i));
+        }
+
+        const pid_t child = ::fork();
+        REQUIRE(child >= 0);
+        if (child == 0) {
+            // Nothing the child does here may reach the parent's segment.
+            if (!sub0log::Logger::detachedByFork()) { ::_exit(3); }
+            if (sub0log::Logger::active() != nullptr) { ::_exit(4); }
+            for (int i = 0; i < cChildAttempts; ++i) {
+                sub0log_info(cStorage, "child {}", static_cast<std::uint64_t>(i));
+            }
+            ::_exit(0);
+        }
+        int status = 0;
+        REQUIRE(::waitpid(child, &status, 0) == child);
+        REQUIRE(WIFEXITED(status));
+        REQUIRE(WEXITSTATUS(status) == 0);
+
+        // The parent is untouched by its child's detachment: still bound,
+        // still writing into the same chunk it held before the fork.
+        CHECK(sub0log::Logger::active() == &logger);
+        CHECK_FALSE(sub0log::Logger::detachedByFork());
+        sub0log_info(cStorage, "parent after fork");
+    }
+
+    const auto image = sub0log::test::slurp(logger.segmentPath());
+    auto reader = sub0log::SegmentReader::open(image);
+    REQUIRE(reader.valid());
+    sub0log::Decoder decoder;
+    const auto records = decoder.decodeAll(reader);
+    CHECK(decoder.undecodableRecords() == 0u);
+    CHECK(reader.unreadableBytes() == 0u);
+    CHECK(logger.stats().droppedRecords_ == 0u);
+
+    REQUIRE(records.size() == static_cast<std::size_t>(cParentRecords) + 1u);
+    for (std::size_t i = 0; i < static_cast<std::size_t>(cParentRecords); ++i) {
+        CAPTURE(i);
+        REQUIRE(records[i].site_ != nullptr);
+        CHECK(records[i].site_->format_ == "parent {}");
+        CHECK(std::get<std::uint64_t>(records[i].args_[0]) == i);
+    }
+    REQUIRE(records.back().site_ != nullptr);
+    CHECK(records.back().site_->format_ == "parent after fork");
+
+    std::filesystem::remove_all(directory);
+}
+
 #endif // !_WIN32
 
 // A call site is not announced once per process: it is announced once per

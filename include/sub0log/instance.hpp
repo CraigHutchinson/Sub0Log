@@ -61,6 +61,13 @@ public:
 
     // -- the scoped-active pattern (R7.1) ---------------------------------
 
+    /// True when a `fork()` detached this process from an inherited Logger
+    /// (POSIX). See `detachForFork()` for why that must happen.
+    [[nodiscard]] static bool detachedByFork() noexcept
+    {
+        return sDetachedByFork_.load(std::memory_order_relaxed);
+    }
+
     /// The bound instance, or nullptr. Relaxed: the emit path re-checks
     /// nothing else before using it, so binding while producer threads are
     /// live is the caller's race to avoid -- bind before spawning, as
@@ -143,6 +150,45 @@ public:
 private:
     Logger() noexcept = default;
 
+    /** Runs in the child after `fork()`, and unbinds whatever was bound.
+     *
+     *  A forked child inherits three things that together corrupt a
+     *  segment in silence: the shared mapping (MAP_SHARED survives fork),
+     *  the bound Logger, and this thread's writer cache -- pointing at the
+     *  same chunk, at the same offset, as the parent. Both processes then
+     *  write the same bytes to the same addresses and the last writer
+     *  wins. Measured before this existed: 41 records emitted across a
+     *  fork, 21 decodable afterwards, and every counter -- drops, damage,
+     *  undecodable -- reporting zero. Losing records is bad; losing them
+     *  while the mechanism reports perfect health is what R9.1 exists to
+     *  forbid.
+     *
+     *  Unbinding is the honest response rather than a clever one. Claiming
+     *  a fresh chunk in the parent's segment would preserve the records but
+     *  attribute them to the parent's process id, and misleading
+     *  diagnostics are worse than absent ones. R5.1 already says each
+     *  process writes its own segment; a child that wants to log makes its
+     *  own Logger, exactly as the two-process example does.
+     */
+    static void detachForFork() noexcept
+    {
+        sActive_.store(nullptr, std::memory_order_relaxed);
+        sDetachedByFork_.store(true, std::memory_order_relaxed);
+    }
+
+    /// Registers detachForFork() with pthread_atfork, once per process.
+    /// Called from create(), so a process that never logs never registers.
+    static void registerForkHandlerOnce() noexcept
+    {
+#if !defined(_WIN32)
+        static const bool once = [] {
+            ::pthread_atfork(nullptr, nullptr, &Logger::detachForFork);
+            return true;
+        }();
+        (void)once;
+#endif
+    }
+
     /// Per-thread cache behind currentWriter()/refillWriter(), keyed on
     /// {owning Logger*, segment generation} so a thread that logs through
     /// two different Loggers (or through a Logger recreated at the same
@@ -161,6 +207,7 @@ private:
 
     // constinit-friendly: no dynamic initialisation, no latched local static.
     static inline std::atomic<Logger*> sActive_{nullptr};
+    static inline std::atomic<bool> sDetachedByFork_{false};
 
     detail::Segment segment_{};
     std::uint64_t rootCorrelation_{0};
@@ -175,6 +222,10 @@ private:
 [[nodiscard]] inline Logger Logger::create(const Options& options) noexcept
 {
     Logger result{};
+    registerForkHandlerOnce();
+    // A Logger created *after* a fork is this process's own, so the flag
+    // stops describing the current state once one exists.
+    sDetachedByFork_.store(false, std::memory_order_relaxed);
     result.segment_ = detail::Segment::create(options.directory_, options.stem_, options.segment_);
     result.rootCorrelation_ = detail::correlationFromEnvironment();
     result.threshold_.store(options.threshold_, std::memory_order_relaxed);
