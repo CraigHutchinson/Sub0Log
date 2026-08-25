@@ -80,6 +80,43 @@ TEST_CASE("a logged record round-trips typed through the file")
     std::filesystem::remove_all(directory);
 }
 
+// docs/adoption-friction.md 1.2: a std::string argument takes the same
+// Bytes path a std::string_view does, all the way through the file and back
+// -- this is the decode-side half of that claim; encode.test.cpp already
+// pins the byte layout in isolation.
+TEST_CASE("a std::string argument round-trips through the file exactly like a "
+         "std::string_view argument")
+{
+    const auto directory = sub0log::test::freshDirectory("stdstring");
+
+    {
+        auto logger = sub0log::Logger::create({.directory_ = directory.string()});
+        REQUIRE(logger.valid());
+        sub0log::Logger::ScopedBind bind{logger};
+
+        const std::string owned = "owned by the caller, not the encoder";
+        sub0log_info(cStorage, "path={}", owned);
+    }
+
+    const auto image = sub0log::test::slurp(sub0log::test::onlySegmentIn(directory));
+    auto reader = sub0log::SegmentReader::open(image);
+    REQUIRE(reader.valid());
+
+    sub0log::Decoder decoder;
+    const auto records = decoder.decodeAll(reader);
+    CHECK(decoder.undecodableRecords() == 0);
+    REQUIRE(records.size() == 1);
+
+    REQUIRE(records[0].args_.size() == 1);
+    // Decoded as std::string_view regardless of what was passed at the call
+    // site (R2.1/R2.3): the wire has one Bytes representation, not one per
+    // C++ source type.
+    CHECK(std::get<std::string_view>(records[0].args_[0]) == "owned by the caller, not the encoder");
+    CHECK(sub0log::Decoder::format(records[0]) == "path=owned by the caller, not the encoder");
+
+    std::filesystem::remove_all(directory);
+}
+
 #ifndef _WIN32
 TEST_CASE("with no scope active, records carry the environment's root correlation (R5.4)")
 {

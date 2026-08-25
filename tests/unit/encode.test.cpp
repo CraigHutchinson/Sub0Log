@@ -6,8 +6,11 @@
 
 #include "support/test_framework.hpp"
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -17,14 +20,45 @@ using namespace sub0log;
 
 namespace {
 enum class Color : std::uint8_t { Red, Green, Blue };
+
+/// Stands in for std::pmr::string and any third-party string type: the only
+/// thing StringViewLike asks of an argument is this conversion, not that it
+/// be a standard type.
+struct CustomString {
+    std::string data_;
+    [[nodiscard]] operator std::string_view() const noexcept { return data_; }
+};
 } // namespace
 
-// The refusal is the point (docs/record-model.md): std::string must not
-// compile as an argument. This is checked as a concept rejection, not by
-// trying to compile a rejected emit call.
-static_assert(!detail::Encodable<std::string>,
-             "std::string must not satisfy Encodable -- the compile-time "
-             "refusal is what prevents the hidden allocation");
+// docs/adoption-friction.md 1.2: a std::string passed by const reference and
+// inlined as bytes allocates nothing, so it takes the same Bytes path as
+// std::string_view. This is checked as a concept acceptance, not by trying
+// to compile an emit call.
+static_assert(detail::Encodable<std::string>,
+             "std::string must satisfy Encodable -- inlining its bytes by "
+             "const reference allocates nothing (docs/adoption-friction.md "
+             "1.2)");
+static_assert(detail::Encodable<CustomString>,
+             "a type with a non-throwing operator std::string_view() const "
+             "must satisfy Encodable -- that is the generalisation this "
+             "concept exists for");
+
+// The three refusals docs/adoption-friction.md 1.2 says must stay: each
+// needs a representation decision (contiguous element encoding, which of
+// several string forms, a time unit) that only the call site can make, and
+// none of them is convertible to std::string_view.
+static_assert(!detail::Encodable<std::vector<int>>,
+             "std::vector must not satisfy Encodable -- it needs an "
+             "explicit encoding decision, not an implicit one");
+static_assert(!detail::Encodable<std::filesystem::path>,
+             "std::filesystem::path must not satisfy Encodable -- POSIX "
+             "libstdc++'s operator string_type() converts to std::string, "
+             "not std::string_view, and chaining that through std::string's "
+             "own conversion would need two user-defined conversions in one "
+             "sequence, which the language does not allow");
+static_assert(!detail::Encodable<std::chrono::milliseconds>,
+             "std::chrono::milliseconds must not satisfy Encodable -- the "
+             "call site must choose a unit explicitly (e.g. .count())");
 
 TEST_CASE("typeCodeFor maps representative types to their wire codes")
 {
@@ -45,6 +79,8 @@ TEST_CASE("typeCodeFor maps representative types to their wire codes")
     CHECK(detail::typeCodeFor<std::string_view>() == wire::TypeCode::Bytes);
     CHECK(detail::typeCodeFor<std::span<const std::byte>>() == wire::TypeCode::Bytes);
     CHECK(detail::typeCodeFor<const char*>() == wire::TypeCode::Bytes);
+    CHECK(detail::typeCodeFor<std::string>() == wire::TypeCode::Bytes);
+    CHECK(detail::typeCodeFor<CustomString>() == wire::TypeCode::Bytes);
     CHECK(detail::typeCodeFor<Color>() == wire::TypeCode::U8); // underlying type
 }
 
@@ -122,6 +158,90 @@ TEST_CASE("a const char* argument is measured once by strlen; null is length 0")
     CHECK(nullResult.bytes_ == 2u);
     CHECK_FALSE(nullResult.truncated_);
     CHECK(wire::loadUnaligned<std::uint16_t>(buf) == 0u);
+}
+
+// docs/adoption-friction.md 1.2: the whole point of accepting std::string is
+// that it produces the identical bytes std::string_view{s} already did, for
+// an lvalue, a const lvalue and a temporary alike -- an argument's lifetime
+// covers the full expression it appears in, temporaries included, so there
+// is nothing for the temporary case to dangle into by the time encodeArgs
+// runs.
+TEST_CASE("a std::string lvalue, const lvalue and temporary all encode to the "
+         "same bytes as the equivalent std::string_view")
+{
+    const std::string_view expected = "hello, sub0log";
+
+    alignas(8) std::byte viaView[64]{};
+    const auto viewResult =
+        detail::encodeArgs(viaView, static_cast<std::uint32_t>(sizeof(viaView)), expected);
+
+    std::string mutableCopy = "hello, sub0log";
+    alignas(8) std::byte viaLvalue[64]{};
+    const auto lvalueResult =
+        detail::encodeArgs(viaLvalue, static_cast<std::uint32_t>(sizeof(viaLvalue)), mutableCopy);
+    CHECK(lvalueResult.bytes_ == viewResult.bytes_);
+    CHECK(std::memcmp(viaLvalue, viaView, lvalueResult.bytes_) == 0);
+
+    const std::string constCopy = "hello, sub0log";
+    alignas(8) std::byte viaConstLvalue[64]{};
+    const auto constLvalueResult = detail::encodeArgs(
+        viaConstLvalue, static_cast<std::uint32_t>(sizeof(viaConstLvalue)), constCopy);
+    CHECK(constLvalueResult.bytes_ == viewResult.bytes_);
+    CHECK(std::memcmp(viaConstLvalue, viaView, constLvalueResult.bytes_) == 0);
+
+    alignas(8) std::byte viaTemporary[64]{};
+    const auto temporaryResult = detail::encodeArgs(
+        viaTemporary, static_cast<std::uint32_t>(sizeof(viaTemporary)), std::string("hello, sub0log"));
+    CHECK(temporaryResult.bytes_ == viewResult.bytes_);
+    CHECK(std::memcmp(viaTemporary, viaView, temporaryResult.bytes_) == 0);
+}
+
+// The generalisation StringViewLike exists for: nothing here is std::string
+// or std::string_view, only a type that offers the conversion -- exactly
+// what std::pmr::string and a third-party string type would offer.
+TEST_CASE("a user-defined type with operator std::string_view() const encodes "
+         "the same way std::string does")
+{
+    const CustomString custom{"third-party string"};
+    const std::string_view expected = "third-party string";
+
+    alignas(8) std::byte viaCustom[64]{};
+    const auto customResult =
+        detail::encodeArgs(viaCustom, static_cast<std::uint32_t>(sizeof(viaCustom)), custom);
+
+    alignas(8) std::byte viaView[64]{};
+    const auto viewResult =
+        detail::encodeArgs(viaView, static_cast<std::uint32_t>(sizeof(viaView)), expected);
+
+    CHECK(customResult.bytes_ == viewResult.bytes_);
+    CHECK_FALSE(customResult.truncated_);
+    CHECK(std::memcmp(viaCustom, viaView, customResult.bytes_) == 0);
+}
+
+TEST_CASE("an empty std::string encodes as a zero length with no bytes following")
+{
+    alignas(8) std::byte buf[64]{};
+    const std::string empty{};
+    const auto result = detail::encodeArgs(buf, static_cast<std::uint32_t>(sizeof(buf)), empty);
+
+    CHECK(result.bytes_ == 2u);
+    CHECK_FALSE(result.truncated_);
+    CHECK(wire::loadUnaligned<std::uint16_t>(buf) == 0u);
+}
+
+TEST_CASE("encodeArgs truncates a std::string at cInlineBytesCap and flags it, "
+         "exactly like a string_view (R9.2: a cut is visible, never silent)")
+{
+    const std::string big(static_cast<std::size_t>(wire::cInlineBytesCap) + 100u, 'x');
+
+    CHECK(detail::upperBoundSize(big) == 2u + wire::cInlineBytesCap);
+
+    std::vector<std::byte> buf(2u + wire::cInlineBytesCap + 16u);
+    const auto result = detail::encodeArgs(buf.data(), static_cast<std::uint32_t>(buf.size()), big);
+
+    CHECK(result.truncated_);
+    CHECK(result.bytes_ == 2u + wire::cInlineBytesCap);
+    CHECK(wire::loadUnaligned<std::uint16_t>(buf.data()) == wire::cInlineBytesCap);
 }
 
 TEST_CASE("encodeArgs truncates a view at cInlineBytesCap and flags it")

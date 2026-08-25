@@ -37,6 +37,27 @@ template <typename T>
 concept CStringLike = std::same_as<std::decay_t<T>, const char*>
                    || std::same_as<std::decay_t<T>, char*>;
 
+/// Anything whose `const&` converts to a `std::string_view`: `std::string`,
+/// `std::pmr::string`, and any third-party string that offers
+/// `operator string_view() const`. The conversion is a view over bytes the
+/// argument already owns, taken once at the call site and read for the
+/// lifetime of the full expression -- there is no allocation and no format
+/// call anywhere in it, so it costs nothing that std::string_view{s} did not
+/// already cost (docs/adoption-friction.md 1.2). ByteView and CStringLike are
+/// excluded so a std::string_view or const char* argument keeps taking its
+/// own, cheaper path instead of going through this one.
+///
+/// The conversion itself must be noexcept: encodeArgs and upperBoundSize are
+/// noexcept end to end (R1.1-R1.3), and a throwing conversion buried inside
+/// them would not fail to compile, it would call std::terminate the first
+/// time it actually threw. std::string's operator string_view() is noexcept
+/// in the standard; a third-party type that has not marked its own that way
+/// is refused here rather than trusted at runtime.
+template <typename T>
+concept StringViewLike =
+    !ByteView<T> && !CStringLike<T> &&
+    std::is_nothrow_convertible_v<const Decayed<T>&, std::string_view>;
+
 /// Every fixed-size type must have a wire size the decoder agrees on: the
 /// encoder writes fixedWireSize<T>() bytes and the reader consumes
 /// wire::fixedSizeOf(code). `long double` is the type that breaks this --
@@ -56,7 +77,7 @@ concept FixedEncodable = std::same_as<Decayed<T>, bool>
 /// The full set a call site may pass. Everything else is rejected at compile
 /// time by typeCodeFor's static_assert, which names the two escape hatches.
 template <typename T>
-concept Encodable = FixedEncodable<T> || ByteView<T> || CStringLike<T>;
+concept Encodable = FixedEncodable<T> || ByteView<T> || CStringLike<T> || StringViewLike<T>;
 
 /// Maps a C++ type to its wire code. Instantiating this with an unsupported
 /// type produces the library's canonical refusal message.
@@ -69,7 +90,9 @@ template <typename T>
     else if constexpr (std::is_enum_v<U>) {
         return typeCodeFor<std::underlying_type_t<U>>();
     }
-    else if constexpr (ByteView<T> || CStringLike<T>) { return wire::TypeCode::Bytes; }
+    else if constexpr (ByteView<T> || CStringLike<T> || StringViewLike<T>) {
+        return wire::TypeCode::Bytes;
+    }
     else if constexpr (std::is_pointer_v<U>) { return wire::TypeCode::Pointer; }
     else if constexpr (std::floating_point<U>) {
         return sizeof(U) == 4 ? wire::TypeCode::F32 : wire::TypeCode::F64;
@@ -91,13 +114,19 @@ template <typename T>
         }
     }
     else {
-        static_assert(FixedEncodable<T> || ByteView<T> || CStringLike<T>,
-                      "Sub0Log arguments must be trivially copyable values or "
-                      "byte views. For text pass std::string_view (bytes are "
-                      "inlined, capped); for large or owned data log an "
-                      "identifier instead. A std::string will not be silently "
-                      "copied -- that hidden allocation is what this refusal "
-                      "prevents (docs/record-model.md).");
+        static_assert(FixedEncodable<T> || ByteView<T> || CStringLike<T> || StringViewLike<T>,
+                      "Sub0Log arguments must be trivially copyable values, "
+                      "or something that views bytes it does not own or "
+                      "format -- std::string_view, std::string and any type "
+                      "with a non-throwing conversion to std::string_view all "
+                      "take this path with no allocation. A std::vector, a "
+                      "std::filesystem::path or a std::chrono::duration still "
+                      "does not compile because each needs a representation "
+                      "decision only the call site can make: log a stable "
+                      "identifier instead, or convert explicitly (e.g. "
+                      "path.native(), duration.count()) so that decision is "
+                      "visible at the call site rather than hidden in the "
+                      "encoder (docs/record-model.md).");
         return wire::TypeCode::Invalid;
     }
 }
@@ -170,6 +199,16 @@ template <typename T>
         return 2u + capped;
     } else if constexpr (CStringLike<T>) {
         return 2u + boundedLength(value);
+    } else if constexpr (StringViewLike<T>) {
+        // Formed once here rather than reused from a caller-held view: the
+        // conversion is read from the same const argument encodeArgs will
+        // read moments later, so the two passes agree without needing to
+        // share state between them.
+        const std::string_view sv{value};
+        const std::uint32_t capped =
+            sv.size() < wire::cInlineBytesCap ? static_cast<std::uint32_t>(sv.size())
+                                              : static_cast<std::uint32_t>(wire::cInlineBytesCap);
+        return 2u + capped;
     } else {
         return fixedWireSize<T>();
     }
@@ -260,6 +299,13 @@ template <Encodable... Args>
         } else if constexpr (CStringLike<T>) {
             const char* const ptr = value;
             offset += encodeBytesOne(dst + offset, left, ptr, boundedLength(ptr), result.truncated_);
+        } else if constexpr (StringViewLike<T>) {
+            // Same conversion, formed fresh from the same const argument
+            // upperBoundOne read -- see the comment there for why forming it
+            // twice (once per pass) rather than caching it across the two
+            // calls is what keeps them from disagreeing.
+            const std::string_view sv{value};
+            offset += encodeBytesOne(dst + offset, left, sv.data(), sv.size(), result.truncated_);
         } else {
             offset += encodeFixedOne(dst + offset, value);
         }
