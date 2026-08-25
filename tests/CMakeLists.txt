@@ -42,6 +42,15 @@ function(sub0log_add_test_category CATEGORY)
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endif()
 
+    # The system suite runs the shipped tool as a subprocess when it was
+    # built; without it those cases compile away rather than silently
+    # passing, so `ctest` on a -DSUB0LOG_BUILD_TOOLS=OFF build does not
+    # claim coverage it does not have.
+    if(TARGET sub0log-cat)
+        target_compile_definitions(${target} PRIVATE
+            "SUB0LOG_CAT_PATH=\"$<TARGET_FILE:sub0log-cat>\"")
+    endif()
+
     doctest_discover_tests(${target}
         TEST_PREFIX "${label}::"
         PROPERTIES LABELS "${label}")

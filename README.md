@@ -61,6 +61,20 @@ ctest --test-dir build -L example      # every example, run unattended
 They are registered as tests on purpose: an example nobody builds is an
 example that has already stopped compiling. See `examples/README.md`.
 
+## Reading records
+
+`sub0log-cat` ships with the library and is built by default:
+
+```sh
+sub0log-cat /var/log/myservice            # every segment in the directory, merged
+sub0log-cat -l error -s 3 --follow .      # errors from subsystem 3, as they arrive
+```
+
+A directory argument means every `*.s0l` inside it, and several segments are
+merged onto one timeline -- which is how a group of processes is meant to be
+read. Filtering is on the fields a record actually carries (severity,
+subsystem, correlation), never a text search of the rendered message.
+
 ## Operating it
 
 Three things a service needs to know before it runs this in anger, none of

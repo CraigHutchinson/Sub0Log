@@ -49,6 +49,7 @@ unset(_sub0log_header_patch)
 include(GNUInstallDirs)
 
 option(SUB0LOG_BUILD_TESTING    "Build unit-tests" ON)
+option(SUB0LOG_BUILD_TOOLS      "Build sub0log-cat" ON)
 option(SUB0LOG_BUILD_EXAMPLES   "Build the runnable examples" OFF)
 option(SUB0LOG_BUILD_BENCHMARKS "Build the KPI benchmark suite and the stress harness" OFF)
 
@@ -92,6 +93,11 @@ if((SUB0LOG_BUILD_TESTING OR SUB0LOG_BUILD_BENCHMARKS)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake)
 endif()
 
+# Before tests/, which registers a test that runs the built tool.
+if(SUB0LOG_BUILD_TOOLS AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/CMakeLists.txt")
+    add_subdirectory(tools)
+endif()
+
 if(SUB0LOG_BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
     add_subdirectory(tests)
 endif()
@@ -107,6 +113,7 @@ endif()
 if(SUB0LOG_BUILD_EXAMPLES AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/CMakeLists.txt")
     add_subdirectory(examples)
 endif()
+
 
 # find_package(Sub0Log) support (docs/adoption-friction.md 1.1): a distro
 # package, a vendored SDK, a superbuild, Conan or vcpkg all install into a

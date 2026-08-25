@@ -54,6 +54,13 @@ sub0log_run_or_die(${CMAKE_COMMAND}
     -DSUB0LOG_BUILD_BENCHMARKS=OFF
     -DSUB0LOG_INSTALL=ON)
 
+# Built before installing, not because a header-only library needs
+# compiling but because sub0log-cat is an install target now: a package
+# that ships headers and no reader leaves a consumer where they started,
+# so the tool being installable is part of what this test checks.
+message(STATUS "packaging: building (sub0log-cat is an install target)")
+sub0log_run_or_die(${CMAKE_COMMAND} --build "${producer_build}" --config Debug)
+
 message(STATUS "packaging: installing Sub0Log")
 sub0log_run_or_die(${CMAKE_COMMAND} --install "${producer_build}" --config Debug)
 
