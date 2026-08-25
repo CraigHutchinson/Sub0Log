@@ -82,6 +82,18 @@ record, why a site definition must be written by the producer rather than
 resolved by the reader, where formatting happens, and the four mechanisms for
 variable-length payloads.
 
+## One file that is not groundwork
+
+**`adoption-friction.md`** points the other way: not what was learned before
+building, but what a consumer hits after. Each entry was produced by writing
+the code someone would plausibly write and recording what happened -- a
+compile, a probe, a measurement -- and each is marked as a bug, a gap, or
+friction kept on purpose. It exists because the one bug in that class found
+so far (a forked child silently overwriting its parent's records) was
+invisible to every requirement we had, and the way to stop that recurring is
+to keep testing the library the way it will be used rather than the way it
+was specified.
+
 ## On sourcing
 
 Claims carry a citation where one exists, and say so explicitly where the
