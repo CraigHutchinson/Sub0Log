@@ -86,6 +86,13 @@ unchanged. And the benchmark suite gains a `MemorySegment` variant of the
 emit group, which will make the cost of the file mapping itself visible for
 the first time (prediction: indistinguishable; the store is the store).
 
+## Where this went next
+
+`vnext-backends-and-memory.md` takes this further on direction: the ladder's
+actual rungs, and what "customisable memory management" can mean in a
+library whose hot path does not allocate -- which turns out to be two
+separate mechanisms, not one allocator parameter.
+
 ## Status
 
 Deferred to vNext, after v1 stabilises. Recorded now so the refactor, when

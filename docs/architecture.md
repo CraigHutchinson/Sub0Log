@@ -320,11 +320,14 @@ gates all of it, so a consumer embedding the library via
 - **v2**: continuation chains, blob channel, the dlopen ABI test, Windows CI
   (including the Windows child-capture path).
 - **v3**: segment rollover, CLI.
-- **vNext consideration**: a front-end/backend split at the chunk-source
-  seam, with an examples ladder from single-process to multi-process and
-  resilience as a declared backend property -- `vnext-frontend-backend.md`
-  fixes where that seam may go and why the classic queue-based split is off
-  the table.
+- **vNext**: a front-end/backend split at the chunk-source seam.
+  `vnext-frontend-backend.md` fixes where that seam may go and why the
+  classic queue-based split is off the table;
+  `vnext-backends-and-memory.md` carries it forward into the ladder's rungs
+  (naive `MemorySegment` first, today's `FileSegment` above it),
+  per-call-site arenas for hot regions, and `std::pmr` on the reader --
+  with one rule holding it together: an allocator hook may never be
+  reachable from a call site's emit path.
 
 ## Answers to the open questions in REQUIREMENTS.md
 

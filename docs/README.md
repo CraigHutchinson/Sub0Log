@@ -56,6 +56,13 @@ instead, the fixed costs per thread and per call site, and an honest gap
 analysis for memory-restricted targets -- which are not in scope, but are
 closer than they look.
 
+**`vnext-backends-and-memory.md`** is the fuller vNext design: a selectable
+backend ladder from a naive in-memory store up to the multi-process durable
+one, and how memory becomes customisable without putting an allocator hook
+anywhere near a call site. Its central claim is that hot-path "memory
+management" means choosing an arena, not choosing a malloc, because there is
+no malloc there to choose.
+
 **`vnext-frontend-backend.md`** records a design consideration for the next
 version -- a front-end/backend split -- and, more importantly, the constraint
 that rules out its obvious shape: a record queue under the word "backend" is
