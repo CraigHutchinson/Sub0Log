@@ -86,6 +86,24 @@ jobs:
       - name: Run the ladder
         run: ctest --test-dir build -L example --output-on-failure
 
+  stress-quick:
+    # The stress harness asserts invariants under load rather than measuring,
+    # so unlike the KPI numbers it *is* a legitimate pass/fail gate. --quick
+    # keeps it to the smallest scale that still exercises every invariant.
+    name: stress-quick
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DSUB0LOG_BUILD_BENCHMARKS=ON -DSUB0LOG_BUILD_TESTING=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Stress (quick)
+        run: ./build/benchmarks/Sub0LogStress --quick
+
   benchmarks-smoke:
     # Keeps the KPI suite compiling and runnable. Deliberately not a
     # pass/fail number gate: shared CI runners produce noisy timings, and a

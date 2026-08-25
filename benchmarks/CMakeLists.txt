@@ -51,3 +51,36 @@ if(MSVC)
 else()
     target_compile_options(Sub0LogBenchmarks PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+# The stress harness (see benchmarks/stress/README.md): a correctness-under-
+# pressure tool, not a KPI group -- it asserts invariants and exits nonzero
+# on the first one it finds broken, rather than reporting a timing. Its own
+# target, built and warned-on exactly like Sub0LogBenchmarks above, but
+# never part of that executable: mixing "assert an invariant" into "measure
+# a cost" would blur what each binary is for.
+add_executable(Sub0LogStress
+    stress/main.cpp
+    stress/saturate.cpp
+    stress/oversubscribe.cpp
+    stress/cap_churn.cpp
+    stress/live_tail.cpp
+    stress/many_segments.cpp
+    stress/child_flood.cpp
+    stress/soak.cpp
+)
+target_link_libraries(Sub0LogStress PRIVATE
+    Sub0Log::Sub0Log
+    Threads::Threads
+)
+target_include_directories(Sub0LogStress PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/stress")
+
+set_target_properties(Sub0LogStress PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF)
+
+if(MSVC)
+    target_compile_options(Sub0LogStress PRIVATE /W4)
+else()
+    target_compile_options(Sub0LogStress PRIVATE -Wall -Wextra -Wpedantic)
+endif()
