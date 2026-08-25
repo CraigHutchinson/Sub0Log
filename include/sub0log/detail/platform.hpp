@@ -28,7 +28,6 @@
 #include <string_view>
 
 #include <cerrno>
-#include <random>
 
 #if defined(_WIN32)
 #  ifndef WIN32_LEAN_AND_MEAN
@@ -419,17 +418,27 @@ inline FileMapping FileMapping::openReadOnly(const std::string& path) noexcept
 
 [[nodiscard]] inline std::uint64_t randomGeneration() noexcept
 {
-    // The init path (segment creation, once per process run) may allocate;
-    // std::random_device can throw on some implementations if its source is
-    // unavailable, which this function -- declared noexcept -- must not
-    // propagate, so the entropy it would have contributed is simply skipped.
+    // Deliberately not std::random_device, for two reasons that both matter
+    // to whoever includes this header.
+    //
+    // It can throw when its source is unavailable, and a try/catch here made
+    // the entire producer header chain refuse to compile under
+    // -fno-exceptions -- a build mode any memory-restricted or freestanding
+    // target is likely to use, for a header that must not need exceptions to
+    // copy bytes into a mapping.
+    //
+    // And it costs: <random> was 59,000 of log.hpp's 71,000 preprocessed
+    // lines, pulled in so one call per process could season a number.
+    //
+    // What this value must actually be is unique per segment with high
+    // probability, so a stale chunk from a previous run is rejected on
+    // positive evidence (R3.4). It is not a security value and nothing
+    // depends on it being unpredictable. Mixing the two clocks, the process
+    // id and this call's own stack address through splitmix64 gives that,
+    // for the cost of a few multiplies.
     std::uint64_t value = 0;
-    try {
-        std::random_device rd;
-        value = (static_cast<std::uint64_t>(rd()) << 32u) | static_cast<std::uint64_t>(rd());
-    } catch (...) {
-        value = 0;
-    }
+    const auto stackNoise = reinterpret_cast<std::uintptr_t>(&value);
+    value ^= static_cast<std::uint64_t>(stackNoise) * 0xD6E8FEB86659FD93ull;
     value ^= monotonicNowNs() * 0x9E3779B97F4A7C15ull;
     value ^= (currentProcessId() + 1u) * 0xBF58476D1CE4E5B9ull;
     value ^= wallNowNs() * 0x94D049BB133111EBull;

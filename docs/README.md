@@ -50,6 +50,12 @@ sharing one mapped file, or inheriting a handle from a parent. The
 availability, blast-radius and cost-asymmetry arguments are all there, along
 with the clock problem that makes a timestamp merge sound in the first place.
 
+**`memory.md`** is the allocation ledger: what the emit path really does
+(nothing, and why that is enforced rather than intended), what it reserves
+instead, the fixed costs per thread and per call site, and an honest gap
+analysis for memory-restricted targets -- which are not in scope, but are
+closer than they look.
+
 **`vnext-frontend-backend.md`** records a design consideration for the next
 version -- a front-end/backend split -- and, more importantly, the constraint
 that rules out its obvious shape: a record queue under the word "backend" is

@@ -10,6 +10,7 @@
 #include "../instance.hpp"
 #include "../site.hpp"
 
+#include <algorithm>
 #include <cstring>
 
 namespace sub0log::detail {
@@ -81,7 +82,15 @@ template <Encodable... Args>
             // outright (a missing definition makes every Message for this
             // site undecodable, which is worse than a shortened file name).
             // Visible via cFlagTruncated, never silent (R9.2).
-            const std::uint32_t emptyCapacity = writer->remaining();
+            // Two ceilings, not one. Chunk capacity is the obvious limit;
+            // the head word's 16-bit payload length is the one that bites
+            // with large chunks, where a long format plus a long __FILE__
+            // can exceed 0xFFFF while fitting the chunk easily. Missing it
+            // meant reserve() refused forever, and every emit for the site
+            // burned a fresh chunk and wrote nothing.
+            constexpr std::uint32_t cMaxPayload = 0xFFFFu;
+            const std::uint32_t emptyCapacity =
+                std::min(writer->remaining(), cMaxPayload);
             const std::uint32_t fixedBytes =
                 static_cast<std::uint32_t>(sizeof(wire::SiteDefinitionPayload))
                 + static_cast<std::uint32_t>(cArgCount) + 4u /* two u16 lengths */ + 8u /* head word */;
@@ -184,10 +193,13 @@ void emit(const SiteDescriptor& site, const Args&... args) noexcept
             // The definition did not make it, so this segment still does not
             // know the site. Leaving the generation unrecorded means the next
             // emit tries again; recording it would strand every later Message
-            // for this site as undecodable. The Message below is dropped too,
-            // because a message whose definition never landed is not worth
-            // the space it would take from records that can be read.
-            logger->countDrop();
+            // for this site as undecodable.
+            //
+            // No countDrop() here: writeSiteDefinition already counted the
+            // one it could not write. This call loses exactly one record, so
+            // it must contribute exactly one drop -- the stress harness
+            // asserts emitted == decoded + dropped, and a double count makes
+            // that ledger lie in the direction that looks safe.
             return;
         }
         site.announcedGeneration_.store(generation, std::memory_order_relaxed);

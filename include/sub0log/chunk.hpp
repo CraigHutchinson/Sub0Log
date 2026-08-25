@@ -13,6 +13,19 @@
 
 namespace sub0log::detail {
 
+// R1.3 promises the producer takes no lock. The commit store and the chunk
+// claim are both 64-bit atomics, and a 64-bit atomic is only lock-free where
+// the core has a 64-bit read-modify-write: on a 32-bit target without one
+// (Cortex-M, older ARM), the standard library silently substitutes a lock
+// table, so the guarantee would quietly become false rather than fail. This
+// makes that a build error naming the reason instead.
+static_assert(std::atomic_ref<std::uint64_t>::is_always_lock_free,
+              "Sub0Log needs lock-free 64-bit atomics: the commit head word "
+              "and the chunk-claim cursor are both u64, and R1.3 promises no "
+              "lock on the producer path. On a target without a 64-bit RMW "
+              "the standard library would fall back to a lock table and the "
+              "promise would silently stop holding.");
+
 /** Owned by exactly one thread after the claim, so nothing here synchronises
  *  except the commit store (R1.3).
  *

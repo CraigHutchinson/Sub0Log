@@ -81,8 +81,8 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | req | covered by |
 |---|---|
 | R1.1 no formatting | design: no format call exists on the emit path; bench `emit.*` bounds the cost |
-| R1.2 no allocation | encode refusal below + bench; sanitizer runs would surface hidden allocation as noise in `emit.*` |
-| R1.3 no lock | design (one `fetch_add` claim) + bench `claim`, `throughput` scaling 1→4 threads; stress `oversubscribe` holds the accounting invariant at 4x cores, and ThreadSanitizer over every stress scenario reported no race |
+| R1.2 no allocation | encode refusal below + bench; sanitizer runs would surface hidden allocation as noise in `emit.*`; the full ledger, including the one allocation that is not ours (dynamic TLS in a plugin), is in `docs/memory.md` |
+| R1.3 no lock | `static_assert` that 64-bit atomics are lock-free, so a target that would silently substitute a lock table fails the build; design (one `fetch_add` claim) + bench `claim`, `throughput` scaling 1→4 threads; stress `oversubscribe` holds the accounting invariant at 4x cores, and ThreadSanitizer over every stress scenario reported no race |
 | R1.4 disabled cost, args unevaluated | integration "with no Logger bound, the macro is a no-op and never evaluates its arguments"; bench `emit.disabled`, `emit.unbound` |
 | R2.1 typed arrival | integration "decoder round-trips typed arguments…"; system "a logged record round-trips typed through the file" |
 | R2.2 field filtering | decoded fields asserted per record (subsystem, severity, thread, correlation, time) across reader/merge/system tests |

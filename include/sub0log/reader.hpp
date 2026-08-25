@@ -19,7 +19,6 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -79,10 +78,16 @@ public:
 
     [[nodiscard]] const wire::SegmentHeader& header() const noexcept { return header_; }
 
-    /// Visits every committed record. Returns the running unreadable-byte
-    /// count (also available afterwards via unreadableBytes()).
-    std::uint64_t
-    visit(const std::function<void(const RecordView&)>& onRecord);
+    /// Visits every committed record. Returns the damage count (also
+    /// available afterwards via unreadableBytes()).
+    ///
+    /// The callback is a template parameter rather than a std::function so
+    /// it inlines and never allocates for its captures: this runs once per
+    /// record over a whole segment, and it is the streaming interface the
+    /// typed layer is built on. Repeatable -- each call re-walks from the
+    /// first chunk and resets the counters.
+    template <typename OnRecord>
+    std::uint64_t visit(OnRecord&& onRecord);
 
     /** Bytes that could not be interpreted: a torn record, a length that
      *  would leave its chunk, a chunk left by a previous generation, or a
@@ -270,8 +275,8 @@ inline SegmentReader SegmentReader::open(std::span<const std::byte> image) noexc
     return reader;
 }
 
-inline std::uint64_t
-SegmentReader::visit(const std::function<void(const RecordView&)>& onRecord)
+template <typename OnRecord>
+std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
 {
     // Reset so repeated calls are idempotent (the contract requires it).
     unreadableBytes_ = 0;
@@ -497,48 +502,57 @@ inline DecodedArg Decoder::decodeFixedArg(const wire::TypeCode code, const std::
 
 inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
 {
-    std::vector<RecordView> views;
-    reader.visit([&views](const RecordView& v) { views.push_back(v); });
-
-    // Pass 1: every SiteDefinition updates the site table. Strict
-    // self-description means a definition precedes its site's first
-    // Message in the stream, but the whole set is scanned regardless so
-    // ordering within the raw view is not load-bearing here.
-    for (const RecordView& v : views) {
-        if (v.head_.kind_ != wire::RecordKind::SiteDefinition) {
-            continue;
+    // Two streaming passes, not one pass into a buffer. The buffer version
+    // held a RecordView for every record in the segment before decoding
+    // any of them -- several times the segment's own size in peak memory,
+    // for a walk that visit() already streams. Two passes over mapped
+    // memory cost a second walk and nothing else.
+    //
+    // Two passes rather than one because file order is not definition
+    // order: threads claim chunks independently, so one thread's Message
+    // can sit in an earlier chunk than another thread's SiteDefinition.
+    // Every definition is therefore known before any message is decoded.
+    std::size_t messageCount = 0;
+    reader.visit([&](const RecordView& v) {
+        switch (v.head_.kind_) {
+        case wire::RecordKind::SiteDefinition: {
+            DecodedSite site;
+            if (!parseSiteDefinition(v.payload_, site)) {
+                ++undecodable_;
+                return;
+            }
+            // Duplicate siteId: keep the first (try_emplace no-ops otherwise).
+            sites_.try_emplace(site.siteId_, std::move(site));
+            return;
         }
-        DecodedSite site;
-        if (!parseSiteDefinition(v.payload_, site)) {
-            ++undecodable_;
-            continue;
+        case wire::RecordKind::Message:
+            ++messageCount;
+            return;
+        default:
+            ++skipped_; // intact, just not a shape this layer decodes
+            return;
         }
-        // Duplicate siteId: keep the first (try_emplace no-ops otherwise).
-        sites_.try_emplace(site.siteId_, std::move(site));
-    }
+    });
 
     std::vector<DecodedRecord> result;
-    result.reserve(views.size());
+    result.reserve(messageCount); // exact: pass one counted them
 
-    // Pass 2: every Message becomes a DecodedRecord, or is counted
+    // Pass two: every Message becomes a DecodedRecord, or is counted
     // undecodable -- a missing site or a malformed argument never throws
     // and never drops silently (R9.2).
-    for (const RecordView& v : views) {
+    reader.visit([&](const RecordView& v) {
         if (v.head_.kind_ != wire::RecordKind::Message) {
-            if (v.head_.kind_ != wire::RecordKind::SiteDefinition) {
-                ++skipped_; // intact, just not a shape this layer decodes
-            }
-            continue;
+            return;
         }
         if (v.payload_.size() < sizeof(wire::MessagePayload)) {
             ++undecodable_;
-            continue;
+            return;
         }
         const auto prefix = wire::loadUnaligned<wire::MessagePayload>(v.payload_.data());
         const DecodedSite* const site = siteFor(prefix.siteId_);
         if (site == nullptr) {
             ++undecodable_;
-            continue;
+            return;
         }
 
         std::vector<DecodedArg> args;
@@ -576,7 +590,7 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
 
         if (!ok) {
             ++undecodable_;
-            continue;
+            return;
         }
 
         DecodedRecord rec;
@@ -587,7 +601,7 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
         rec.truncated_ = (v.head_.flags_ & wire::cFlagTruncated) != 0u;
         rec.args_ = std::move(args);
         result.push_back(std::move(rec));
-    }
+    });
 
     return result;
 }
