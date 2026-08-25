@@ -64,7 +64,7 @@ So the two mechanisms are genuinely different, and conflating them is how
 this feature turns into a performance regression with a configuration
 surface.
 
-### (a) On the hot path, "memory management" means *which arena*, not *malloc*
+### (a) On the hot path, "memory management" means *which channel*, not *malloc*
 
 What a deep, performance-critical region actually wants is not a different
 allocator. It wants its records to land somewhere of its choosing: a
@@ -73,9 +73,9 @@ contending on the same claim cursor as every other subsystem, and not at
 risk of being crowded out by a chatty one.
 
 That is a **storage steering** decision, and the format already supports
-it, because a separate arena is just another segment -- and merging
-segments at read time is the design (`multi-process.md`). The read side
-needs nothing new.
+it, because a channel is just another segment -- and merging segments at
+read time is the design (`multi-process.md`). The read side needs nothing
+new.
 
 Sketch, per call site:
 
@@ -97,21 +97,23 @@ presenting a channel as free isolation.
 What this buys, and why it is worth a distinct spelling:
 
 - **No cross-subsystem contention.** The one atomic on the producer path
-  is the chunk claim; a hot region with its own arena claims from its own
+  is the chunk claim; a hot region with its own channel claims from its own
   cursor and never shares a cache line with unrelated code.
 - **A bounded blast radius.** A region that floods cannot evict another
-  subsystem's records, because it exhausts its own arena and counts its own
-  drops.
-- **Locality worth having.** A 64 KiB arena touched by one loop stays warm
-  in a way an 8 MiB shared segment does not.
-- **It composes with the ladder.** An arena is a `MemorySegment`; the
+  subsystem's records, because it exhausts its own channel and counts its
+  own drops. This is LTTng's documented reason for per-process buffering,
+  arrived at from the same direction.
+- **Locality worth having.** A 64 KiB channel touched by one loop stays
+  warm in a way an 8 MiB shared segment does not.
+- **It composes with the ladder.** A channel is a `MemorySegment`; the
   merged read view puts its records back in time order beside everything
   else.
 
-The cost to be honest about: a second cursor is a second place records can
-be lost, and the arena's drop count is separate. `Stats` must aggregate, or
-a region silently running dry is exactly the invisible failure R9.1 exists
-to prevent.
+The cost to be honest about, and LTTng states its equivalent in the same
+place: a channel is more memory, and a second cursor is a second place
+records can be lost. Its drop count is separate, so `Stats` must aggregate
+-- a region silently running dry is exactly the invisible failure R9.1
+exists to prevent.
 
 ### (b) Off the hot path, an allocator is the right tool -- and there is real work for it
 
@@ -161,8 +163,8 @@ way `MemorySegment` says it gives up durability.
 
 1. `ChunkSource` seam + `MemorySegment` (rung 1). Small, proves the seam,
    unlocks embedded and tests.
-2. Per-call-site arenas (`sub0log_*_to`) with aggregated `Stats`. Depends
-   on 1 -- an arena *is* a `MemorySegment`.
+2. Per-call-site channels (`sub0log_*_to`) with aggregated `Stats`. Depends
+   on 1 -- a channel *is* a `MemorySegment`.
 3. `std::pmr` in `Decoder`/`Merger`. Independent, host-side, immediately
    useful to a bounded decoding tool.
 4. String policy in `Logger::Options`. Last, smallest, only matters to
