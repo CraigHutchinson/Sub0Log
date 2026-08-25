@@ -26,7 +26,8 @@ set(SUB0LOG_EXAMPLES
     05_multi_process
     06_child_capture
     07_live_tail
-    08_testing_your_code)
+    08_testing_your_code
+    09_operating)
 
 set(SUB0LOG_EXAMPLES_NEEDING_THREADS
     03_correlation

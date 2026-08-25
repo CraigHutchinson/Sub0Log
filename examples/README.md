@@ -27,6 +27,7 @@ nothing here explains what `++i` does.
 | 06 | `06_child_capture.cpp` (POSIX) | Capturing a real third-party subprocess's stdout/stderr as attributed records, with a `LineInterceptor` that suppresses noise and harvests a value live. | R5.5, R5.6 |
 | 07 | `07_live_tail.cpp` | A miniature console tailer: a reader repeatedly re-opens the same segment a producer thread is still writing. The console view is a view. | R3 (read side), R5.2 |
 | 08 | `08_testing_your_code.cpp` | How a consumer tests their own logging code with no test framework: `ScopedBind` over a temp directory, assertions on decoded fields, the drop counter. | R7.1, R7.2, R2.3, R9.1 |
+| 09 | `09_operating.cpp` | What the mechanism says about itself: the two counters a metrics scrape should publish, the count of call sites that reached no instance at all, and turning one subsystem up without the traffic of every other one. | R9.1, R9.3, R1.4 |
 
 Examples 04-06 are POSIX-only (`fork`, `execvp`, POSIX signals): each still
 builds and runs on Windows, but its `main()` prints a one-line note that the
@@ -43,7 +44,7 @@ cmake --build build
 ```
 
 This adds one executable per example, named `sub0log_example_01_hello`
-through `sub0log_example_08_testing_your_code`, each linking
+through `sub0log_example_09_operating`, each linking
 `Sub0Log::Sub0Log` the same way any downstream consumer would.
 
 ## Running

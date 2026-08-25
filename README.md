@@ -61,6 +61,35 @@ ctest --test-dir build -L example      # every example, run unattended
 They are registered as tests on purpose: an example nobody builds is an
 example that has already stopped compiling. See `examples/README.md`.
 
+## Operating it
+
+Three things a service needs to know before it runs this in anger, none of
+which the API can tell you at the point you need them:
+
+**A segment does not wrap.** It is sized once, at `Logger::create`, and when
+it fills every later record is dropped and counted -- permanently, while the
+process keeps running perfectly. That is deliberate: rotation policy is where
+logging libraries go to acquire configuration surfaces, and `REQUIREMENTS.md`
+puts it out of scope. The intended pattern is a new segment per run, or per
+interval, with `Merger` putting them back into one ordered stream at read
+time. Size `segmentBytes_` for the rate you expect, and alert on the drop
+counter rather than on the file.
+
+**Watch two counters and one number.** `Logger::stats()` gives dropped and
+truncated records; `sub0log::unboundEmits()` gives call sites that reached no
+instance at all (R9.3) -- nonzero means something is logging into nowhere,
+which no other signal will tell you. All three are relaxed atomic loads, safe
+and cheap to poll from a metrics thread. There is deliberately no callback:
+that would put your code on the emit path. `examples/09_operating.cpp` is the
+whole story, runnable.
+
+**Including it is not free.** `<sub0log/log.hpp>` costs about 420 ms per
+translation unit over an empty one on GCC 13 at `-O2`, roughly 220 ms more
+than a TU that already includes `<string>` and `<vector>`. That is the price
+of header-only, and it is worth knowing before the include goes into a widely
+included header. `<sub0log/reader.hpp>` costs another 220 ms and belongs in
+tools and tests rather than in producer TUs.
+
 ## Status
 
 Early, but running. The v1 producer and reader paths are implemented and
