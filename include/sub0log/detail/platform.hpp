@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -64,6 +65,71 @@ struct PlatformError {
     /// True when an error is actually present.
     [[nodiscard]] explicit operator bool() const noexcept { return !what_.empty(); }
 };
+
+#if defined(_WIN32)
+
+/// Result of a UTF-8 -> UTF-16 path conversion: the wide string on success,
+/// or an error classified the same way as the rest of this file.
+struct WidePath {
+    std::wstring value_{};
+    PlatformError error_{};
+};
+
+/// Converts a UTF-8 path to null-terminated UTF-16 for the `*W` Win32 calls
+/// below. Every path this library opens comes in as the UTF-8 std::string
+/// the rest of the library standardises on; the `*A` Win32 calls instead
+/// decode narrow strings through the process's active code page, which is
+/// rarely UTF-8 and never guaranteed to be -- so a directory name outside
+/// that code page (most non-ASCII user profile names) or a long
+/// (`\\?\`-prefixed) path fails to open even though it is perfectly valid.
+/// `*W` sidesteps the code page entirely; this is the one conversion that
+/// buys that.
+///
+/// Two-call idiom: size the buffer, then fill it. `MB_ERR_INVALID_CHARS`
+/// makes an ill-formed UTF-8 path fail *here*, with a classified error,
+/// rather than reach `CreateFileW` as a silently mangled string (lone
+/// surrogates / substituted characters) that then fails -- or worse,
+/// resolves -- somewhere the caller cannot see (R9.2: a failure the library
+/// cannot classify must be more visible than one it can, never less).
+[[nodiscard]] inline WidePath toWidePath(const std::string& utf8) noexcept
+{
+    WidePath result{};
+    if (utf8.empty()) {
+        // MultiByteToWideChar's cbMultiByte==0 is documented to fail
+        // unconditionally, so a genuinely empty input can't be told apart
+        // from a real conversion error by its return value. It isn't a
+        // conversion failure at all -- "" converts to L"" -- so handle it
+        // directly instead of trying to read GetLastError() through a call
+        // whose failure is guaranteed regardless of what the string holds.
+        return result;
+    }
+    if (utf8.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        // MultiByteToWideChar takes its input length as an int; a path this
+        // long cannot be passed to it at all. Classified the same way as
+        // every other failure here, not a silent truncation.
+        result.error_ = PlatformError{static_cast<int>(ERROR_INVALID_PARAMETER),
+                                      "MultiByteToWideChar(path too long)"};
+        return result;
+    }
+    const int utf8Len = static_cast<int>(utf8.size());
+    const int wideLen = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), utf8Len,
+                                              nullptr, 0);
+    if (wideLen <= 0) {
+        result.error_ = PlatformError{static_cast<int>(::GetLastError()), "MultiByteToWideChar"};
+        return result;
+    }
+    result.value_.resize(static_cast<std::size_t>(wideLen));
+    const int written = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8.data(), utf8Len,
+                                              result.value_.data(), wideLen);
+    if (written <= 0) {
+        result.error_ = PlatformError{static_cast<int>(::GetLastError()), "MultiByteToWideChar"};
+        result.value_.clear();
+        return result;
+    }
+    return result;
+}
+
+#endif // _WIN32
 
 /** A writable shared mapping over a real file, created at full size.
  *  Move-only RAII; unmapping does not lose written pages (that is the whole
@@ -188,11 +254,16 @@ inline FileMapping FileMapping::create(const std::string& path, std::uint64_t by
     // share mode was never what protected that, and a restrictive one here
     // silently forbids every reader. POSIX imposes no equivalent restriction,
     // which is why only the Windows job could show this.
-    const HANDLE file = ::CreateFileA(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+    const WidePath wide = toWidePath(path);
+    if (wide.error_) {
+        result.error_ = wide.error_;
+        return result;
+    }
+    const HANDLE file = ::CreateFileW(wide.value_.c_str(), GENERIC_READ | GENERIC_WRITE,
                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                       nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        result.error_ = PlatformError{static_cast<int>(::GetLastError()), "CreateFileA"};
+        result.error_ = PlatformError{static_cast<int>(::GetLastError()), "CreateFileW"};
         return result;
     }
     LARGE_INTEGER size{};
@@ -259,11 +330,16 @@ inline FileMapping FileMapping::openReadOnly(const std::string& path) noexcept
     // the opener's share mode against existing handles' access, so a reader
     // that does not permit writing cannot open a segment a producer still has
     // open for writing -- which is exactly the live-tail case.
-    const HANDLE file = ::CreateFileA(path.c_str(), GENERIC_READ,
+    const WidePath wide = toWidePath(path);
+    if (wide.error_) {
+        result.error_ = wide.error_;
+        return result;
+    }
+    const HANDLE file = ::CreateFileW(wide.value_.c_str(), GENERIC_READ,
                                       FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                       nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) {
-        result.error_ = PlatformError{static_cast<int>(::GetLastError()), "CreateFileA"};
+        result.error_ = PlatformError{static_cast<int>(::GetLastError()), "CreateFileW"};
         return result;
     }
     LARGE_INTEGER size{};
