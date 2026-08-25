@@ -27,10 +27,10 @@ void runMergeGroup(std::vector<ankerl::nanobench::Result>& allResults)
     // -- see support/mixed_records.hpp -- exactly as four real producer
     // processes would each write their own), unmeasured, slurped once.
     const std::array<std::vector<std::byte>, 4> images{
-        buildMixedSegmentImage<10>("merge0", cRecordsPerSegment),
-        buildMixedSegmentImage<11>("merge1", cRecordsPerSegment),
-        buildMixedSegmentImage<12>("merge2", cRecordsPerSegment),
-        buildMixedSegmentImage<13>("merge3", cRecordsPerSegment),
+        buildMixedSegmentImage("merge0", cRecordsPerSegment),
+        buildMixedSegmentImage("merge1", cRecordsPerSegment),
+        buildMixedSegmentImage("merge2", cRecordsPerSegment),
+        buildMixedSegmentImage("merge3", cRecordsPerSegment),
     };
     for (const auto& image : images) {
         if (image.empty()) {

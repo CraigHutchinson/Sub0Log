@@ -3,11 +3,14 @@
  *         producers, a live reader, and periodic Logger recreation -- run
  *         together for the duration, one generation at a time.
  *
- *  Each generation gets its own Logger and its own call site (the Tag
- *  trick from many_segments.cpp: SiteDescriptor::announced_ is a
- *  process-wide latch, so a recreated Logger sharing the previous
- *  generation's call site would get zero SiteDefinition records in its
- *  fresh segment). At the end of each generation's life this scenario
+ *  Each generation gets its own Logger and reuses the SAME call site,
+ *  which is the point: a site announces itself into each new segment, so a
+ *  recreated Logger decodes on its own. That did not hold when this
+ *  scenario was written -- announcing was once per process, so every
+ *  generation after the first produced undecodable records, and this file
+ *  worked around it with a per-generation call site and an arbitrary
+ *  eight-generation ceiling. The library is fixed; the ceiling is gone.
+ *  At the end of each generation's life this scenario
  *  checks the same accounting invariant as "saturate" (emitted == decoded +
  *  dropped, undecodableRecords() == 0); across the whole run it checks that
  *  the count of undecodable records per generation never grows above zero.
@@ -23,7 +26,6 @@
 #include <sub0log/reader.hpp>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -38,23 +40,11 @@ namespace sub0log::stress {
 namespace {
 
 constexpr sub0log::SubsystemId cSoakSubsystem{105};
-constexpr int cMaxGenerations = 8;
 
-template <int Tag>
 void emitSoakRecord(std::uint64_t counter) noexcept
 {
     sub0log_info(cSoakSubsystem, "soak {}", counter);
 }
-
-using EmitFn = void (*)(std::uint64_t);
-
-template <int... Tags>
-constexpr std::array<EmitFn, sizeof...(Tags)> makeEmitTable(std::integer_sequence<int, Tags...>)
-{
-    return {&emitSoakRecord<Tags>...};
-}
-
-constexpr auto cEmitTable = makeEmitTable(std::make_integer_sequence<int, cMaxGenerations>{});
 
 /// One generation's outcome, folded into the scenario's overall counters
 /// and its two invariants after the generation's Logger is retired.
@@ -73,7 +63,6 @@ GenerationOutcome runOneGeneration(int generationIndex, unsigned writerCount,
                                    const std::string& directory)
 {
     GenerationOutcome outcome{};
-    const EmitFn emitFn = cEmitTable[static_cast<std::size_t>(generationIndex)];
 
     Logger::Options loggerOptions{};
     loggerOptions.directory_ = directory;
@@ -89,7 +78,7 @@ GenerationOutcome runOneGeneration(int generationIndex, unsigned writerCount,
 
     {
         Logger::ScopedBind bind{logger};
-        emitFn(0u); // pre-warm this generation's own call site
+        emitSoakRecord(0u); // pre-warm: announce into this generation's segment
         outcome.emitted_ = 1;
 
         std::thread reader([&] {
@@ -121,10 +110,10 @@ GenerationOutcome runOneGeneration(int generationIndex, unsigned writerCount,
         writers.reserve(writerCount);
         std::vector<std::atomic<std::uint64_t>> perWriterEmitted(writerCount);
         for (unsigned t = 0; t < writerCount; ++t) {
-            writers.emplace_back([emitFn, &stop, &perWriterEmitted, t] {
+            writers.emplace_back([&stop, &perWriterEmitted, t] {
                 std::uint64_t i = 1; // 0 taken by the pre-warm call
                 while (!stop.load(std::memory_order_relaxed)) {
-                    emitFn(i);
+                    emitSoakRecord(i);
                     ++i;
                 }
                 perWriterEmitted[t].store(i - 1, std::memory_order_relaxed);

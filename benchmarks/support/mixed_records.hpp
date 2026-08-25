@@ -6,23 +6,16 @@
  *         the "decode", "merge" and "format" KPI groups, which measure only
  *         the read side.
  *
- *  Why this is a template on `Tag`: STYLE_GUIDE.md notes that a call-site
- *  macro must materialise a *distinct* SiteDescriptor per call site, and
- *  that a function template instantiated on the same arguments at the same
- *  line shares one static across instantiations -- the flip side is that
- *  instantiating on *different* template arguments gives each instantiation
- *  its own set of local statics. buildMixedSegmentImage() is called several
- *  times per benchmark run (decode's one fixture, merge's four, format's
- *  one) to build *independent* segments; a plain (non-template) helper would
- *  share its SiteDescriptors across all of those calls, and since
- *  SiteDescriptor::announced_ is a one-shot per-process latch (it does not
- *  know a fresh Logger means a fresh segment), every build after the first
- *  would silently write Message records with no preceding SiteDefinition --
- *  exactly the "undecodable record" case R9.2 exists to make visible, here
- *  self-inflicted by the fixture rather than by damage. A distinct `Tag`
- *  per call site gives each build its own SiteDescriptors, one segment's
- *  worth of definitions each, matching what N independent producer
- *  processes would actually write.
+ *  Called several times per run (decode's one fixture, merge's four,
+ *  format's one) to build independent segments, all from the same call
+ *  sites. That is now simply correct: a site announces itself into every
+ *  segment it is used in, so each image carries its own definitions.
+ *
+ *  It was not always. This helper used to be a template on an `int Tag`
+ *  purely to give each call a distinct set of call sites, because
+ *  announcing was once per process and every image after the first came
+ *  out undecodable. The library defect that forced that is fixed, and the
+ *  workaround is gone with it.
  */
 
 #include "temp_dir.hpp"
@@ -45,8 +38,7 @@ inline constexpr sub0log::SubsystemId cMixedRecordsSubsystem{9};
 /// "few sites, many messages" shape real logging has -- covering ints,
 /// floats, bools and strings so decode/merge/format exercise every
 /// argument path rather than just one.
-template <int Tag>
-inline void emitMixedRecordsImpl(std::uint64_t recordCount)
+inline void emitMixedRecords(std::uint64_t recordCount)
 {
     static const std::string cName16(16, 'n');
 
@@ -81,7 +73,6 @@ inline void emitMixedRecordsImpl(std::uint64_t recordCount)
 /// (and its file) go away -- everything here runs outside any measured
 /// lambda. Returns an empty vector on any setup failure; callers check for
 /// that rather than throwing partway through a benchmark run.
-template <int Tag>
 [[nodiscard]] inline std::vector<std::byte>
 buildMixedSegmentImage(const std::string& tagName, std::uint64_t recordCount)
 {
@@ -103,7 +94,7 @@ buildMixedSegmentImage(const std::string& tagName, std::uint64_t recordCount)
     }
     {
         sub0log::Logger::ScopedBind bind{logger};
-        emitMixedRecordsImpl<Tag>(recordCount);
+        emitMixedRecords(recordCount);
     } // unbind before the file is read back
 
     const std::filesystem::path segmentPath = onlySegmentIn(dir.path());

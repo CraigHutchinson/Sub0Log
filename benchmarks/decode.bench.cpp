@@ -24,7 +24,7 @@ void runDecodeGroup(std::vector<ankerl::nanobench::Result>& allResults)
 
     // Setup: never measured. One segment with ~100k mixed records, slurped
     // into memory once; every decode below reads that same image.
-    const std::vector<std::byte> image = buildMixedSegmentImage<1>("decode", cRecordCount);
+    const std::vector<std::byte> image = buildMixedSegmentImage("decode", cRecordCount);
     if (image.empty()) {
         std::cerr << "sub0log-bench: decode group: failed to build the fixture segment, skipping\n";
         return;

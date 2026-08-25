@@ -6,13 +6,12 @@
  *         slot, so each Logger's threads run while it alone is bound; the
  *         merge afterwards is what actually exercises R5.2/R5.3).
  *
- *  Each Logger gets its OWN call site (see the Tag trick below): the
- *  SiteDescriptor announced-once latch is process-wide
- *  (benchmarks/support/mixed_records.hpp explains why), and this scenario
- *  runs M Loggers in one process, so sharing a call site across them would
- *  leave every Logger after the first with no SiteDefinition in its
- *  segment -- exactly the undecodable-record case this scenario's third
- *  invariant checks for.
+ *  One shared call site across every Logger, deliberately. This scenario
+ *  used to need a distinct call site per Logger, because announcing was
+ *  once-per-process and every Logger after the first got no SiteDefinition
+ *  in its segment. That was a library defect, not a fact of life; it is
+ *  fixed (sites are announced per segment), and using one site here is now
+ *  the honest test of it.
  */
 
 #include "support/check.hpp"
@@ -24,7 +23,6 @@
 #include <sub0log/reader.hpp>
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -38,23 +36,11 @@ namespace sub0log::stress {
 namespace {
 
 constexpr sub0log::SubsystemId cManySegmentsSubsystem{104};
-constexpr int cMaxLoggers = 8; // compile-time ceiling on the Tag table below
 
-template <int Tag>
 void emitManySegmentsRecord(std::uint64_t counter) noexcept
 {
     sub0log_info(cManySegmentsSubsystem, "many_segments {}", counter);
 }
-
-using EmitFn = void (*)(std::uint64_t);
-
-template <int... Tags>
-constexpr std::array<EmitFn, sizeof...(Tags)> makeEmitTable(std::integer_sequence<int, Tags...>)
-{
-    return {&emitManySegmentsRecord<Tags>...};
-}
-
-constexpr auto cEmitTable = makeEmitTable(std::make_integer_sequence<int, cMaxLoggers>{});
 
 } // namespace
 
@@ -65,11 +51,6 @@ ScenarioResult runManySegments(const RunOptions& options)
     const int loggerCount = options.quick_ ? 3 : 6;
     const unsigned threadsPerLogger = std::min(4u, std::max(1u, options.threads_));
     const std::uint64_t perThread = options.quick_ ? 100u : 1'000u;
-
-    if (!checker.check(loggerCount <= cMaxLoggers, "loggerCount fits the compile-time Tag table",
-                       cMaxLoggers, loggerCount)) {
-        return finish(checker, {});
-    }
 
     TempDir dir{"many_segments"};
 
@@ -90,19 +71,21 @@ ScenarioResult runManySegments(const RunOptions& options)
             continue;
         }
 
-        const EmitFn emitFn = cEmitTable[static_cast<std::size_t>(idx)];
         std::uint64_t emitted = 0;
         {
             Logger::ScopedBind bind{logger};
-            emitFn(0u); // pre-warm this Logger's own call site (see saturate.cpp)
+            // Pre-warm so the definition write cannot race across the
+            // producer threads below (see saturate.cpp). The same call site
+            // announces itself into each Logger's segment in turn.
+            emitManySegmentsRecord(0u);
             ++emitted;
 
             std::vector<std::thread> workers;
             workers.reserve(threadsPerLogger);
             for (unsigned t = 0; t < threadsPerLogger; ++t) {
-                workers.emplace_back([emitFn, perThread] {
+                workers.emplace_back([perThread] {
                     for (std::uint64_t i = 1; i <= perThread; ++i) { // 0 taken by the pre-warm
-                        emitFn(i);
+                        emitManySegmentsRecord(i);
                     }
                 });
             }

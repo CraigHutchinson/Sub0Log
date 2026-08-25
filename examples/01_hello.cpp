@@ -149,9 +149,16 @@ int main()
     sub0log::Decoder decoder;
     const auto records = decoder.decodeAll(reader);
 
+    // Two different numbers, and the difference matters. "unwritten" is the
+    // part of the pre-sized segment the producer never reached -- expected,
+    // and normally most of the file. "damage" is what could not be
+    // interpreted: a torn record, a bad length, storage from an older run.
+    // On a healthy segment damage is zero however little of it was used.
     std::printf("read %s\n", segmentPath.filename().string().c_str());
-    std::printf("decoded %zu record(s), %llu unreadable byte(s), %llu undecodable record(s)\n\n",
+    std::printf("decoded %zu record(s); %llu byte(s) never written, "
+                "%llu byte(s) damaged, %llu undecodable record(s)\n\n",
                 records.size(),
+                static_cast<unsigned long long>(reader.unwrittenBytes()),
                 static_cast<unsigned long long>(reader.unreadableBytes()),
                 static_cast<unsigned long long>(decoder.undecodableRecords()));
 

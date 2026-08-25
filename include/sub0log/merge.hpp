@@ -37,7 +37,8 @@ struct MergedRecord {
 class Merger {
 public:
     struct Totals {
-        std::uint64_t unreadableBytes_{};
+        std::uint64_t unreadableBytes_{}; ///< Damage: see SegmentReader.
+        std::uint64_t unwrittenBytes_{};  ///< Never-written space; expected.
         std::uint64_t undecodableRecords_{};
     };
 
@@ -74,8 +75,9 @@ inline SegmentError Merger::addSegment(std::span<const std::byte> image)
     loaded.header_ = reader.header();
     loaded.records_ = loaded.decoder_.decodeAll(reader); // runs the visit pass
 
-    // unreadableBytes() reflects the visit pass decodeAll just ran.
+    // Both counters reflect the visit pass decodeAll just ran.
     totals_.unreadableBytes_ += reader.unreadableBytes();
+    totals_.unwrittenBytes_ += reader.unwrittenBytes();
     totals_.undecodableRecords_ += loaded.decoder_.undecodableRecords();
 
     segments_.push_back(std::move(loaded));

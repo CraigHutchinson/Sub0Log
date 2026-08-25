@@ -23,7 +23,7 @@ void runFormatGroup(std::vector<ankerl::nanobench::Result>& allResults)
     // support/mixed_records.hpp puts a 4-arg ("quad") record at every 5th
     // index, so 40 records guarantee several -- decoded once, unmeasured,
     // to hand format() one real DecodedRecord to render repeatedly.
-    const std::vector<std::byte> image = buildMixedSegmentImage<20>("format", 40);
+    const std::vector<std::byte> image = buildMixedSegmentImage("format", 40);
     if (image.empty()) {
         std::cerr << "sub0log-bench: format group: failed to build the fixture segment, skipping\n";
         return;

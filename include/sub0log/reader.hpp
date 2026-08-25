@@ -63,7 +63,10 @@ enum class SegmentError : std::uint8_t {
  *     commit tag; bounds-check payloadBytes against the chunk's remainder
  *     before touching the payload -- no length may steer the reader outside
  *     the chunk it was found in;
- *   - accumulate every byte not yielded as a record into unreadableBytes_.
+ *   - separate the two reasons a byte is not part of a record: space that
+ *     was never written (a pre-sized segment is mostly this) versus bytes
+ *     that could not be interpreted (damage). Only the second answers
+ *     "how much did I lose?".
  */
 class SegmentReader {
 public:
@@ -80,9 +83,34 @@ public:
     std::uint64_t
     visit(const std::function<void(const RecordView&)>& onRecord);
 
+    /** Bytes that could not be interpreted: a torn record, a length that
+     *  would leave its chunk, a chunk left by a previous generation, or a
+     *  tail the file no longer has. This is the damage number, and on a
+     *  healthy segment it is zero however little of the segment is used.
+     *
+     *  It deliberately excludes space that was simply never written --
+     *  see unwrittenBytes(). Counting the two together, as this reader
+     *  first did, makes the number useless for the question R3.3 asks:
+     *  a fresh 8 MiB segment holding four records reported 8.3 million
+     *  "unreadable" bytes, which reads as catastrophe and means nothing.
+     */
     [[nodiscard]] std::uint64_t unreadableBytes() const noexcept
     {
         return unreadableBytes_;
+    }
+
+    /// Space the producer never wrote: chunks never claimed, and the unused
+    /// remainder of chunks that were. Expected, not damage -- a segment is
+    /// pre-sized, so this is normally most of it.
+    [[nodiscard]] std::uint64_t unwrittenBytes() const noexcept
+    {
+        return unwrittenBytes_;
+    }
+
+    /// Every byte not part of a committed record, whatever the reason.
+    [[nodiscard]] std::uint64_t accountedBytes() const noexcept
+    {
+        return unreadableBytes_ + unwrittenBytes_;
     }
 
 private:
@@ -92,6 +120,7 @@ private:
     wire::SegmentHeader header_{};
     SegmentError error_{SegmentError::TooSmall}; ///< Ok once open() validates.
     std::uint64_t unreadableBytes_{0};
+    std::uint64_t unwrittenBytes_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -234,6 +263,7 @@ SegmentReader::visit(const std::function<void(const RecordView&)>& onRecord)
 {
     // Reset so repeated calls are idempotent (the contract requires it).
     unreadableBytes_ = 0;
+    unwrittenBytes_ = 0;
     if (!valid()) {
         return unreadableBytes_;
     }
@@ -273,11 +303,21 @@ SegmentReader::visit(const std::function<void(const RecordView&)>& onRecord)
         const std::byte* const chunkPtr = image_.data() + chunkStart;
         const wire::ChunkHeader chunkHead = wire::loadUnaligned<wire::ChunkHeader>(chunkPtr);
 
+        if (chunkHead.generation_ == 0u) {
+            // Never claimed: a segment is created at full size, so this is
+            // simply the part of it the producer had not reached. Nothing
+            // was lost here, and calling it damage would drown the number
+            // that matters.
+            unwrittenBytes_ += chunkNominalBytes;
+            chunkStart = nominalEnd;
+            ++chunkIndex;
+            continue;
+        }
+
         if (chunkHead.generation_ != header_.generation_) {
-            // Stale (previous generation) or never claimed (all-zero,
-            // generation 0): positive evidence, not zero-fill inference
-            // (R3.4). The chunk header itself was legible; the body was
-            // not, and count it plus whatever tail the image is missing.
+            // A previous generation's chunk in recycled storage: positive
+            // evidence, not zero-fill inference (R3.4). The header was
+            // legible, the body is not ours to read.
             unreadableBytes_ += (availableInChunk - sizeof(wire::ChunkHeader)) + missingTail;
             chunkStart = nominalEnd;
             ++chunkIndex;
@@ -291,16 +331,25 @@ SegmentReader::visit(const std::function<void(const RecordView&)>& onRecord)
         while (cursor < bodyEnd) {
             const std::uint64_t remaining = bodyEnd - cursor;
             if (remaining < sizeof(std::uint64_t)) {
-                // Fewer than 8 bytes left: no head word can fit here.
-                unreadableBytes_ += remaining;
+                // Fewer than 8 bytes left: no head word can fit here, so
+                // this is padding the writer could never have used.
+                unwrittenBytes_ += remaining;
                 break;
             }
 
             const std::uint64_t word = wire::loadUnaligned<std::uint64_t>(image_.data() + cursor);
             if (!wire::RecordHead::isCommitted(word)) {
-                // Zero (unwritten remainder of the chunk) or torn: stop
-                // decoding this chunk, count everything from here on.
-                unreadableBytes_ += remaining;
+                // The zero/non-zero split is the whole distinction: a zero
+                // word is the chunk's unwritten remainder, while a non-zero
+                // word without the commit tag is a record whose payload
+                // landed and whose head word did not -- the torn write the
+                // commit-last protocol exists to make visible. Either way
+                // decoding of this chunk stops here.
+                if (word == 0u) {
+                    unwrittenBytes_ += remaining;
+                } else {
+                    unreadableBytes_ += remaining;
+                }
                 break;
             }
 

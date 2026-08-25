@@ -54,7 +54,8 @@ TEST_CASE("a logged record round-trips typed through the file")
 
     sub0log::Decoder decoder;
     const auto records = decoder.decodeAll(reader);
-    CHECK(reader.unreadableBytes() > 0); // the unfilled remainder is reported
+    CHECK(reader.unwrittenBytes() > 0);   // the unfilled remainder is reported
+    CHECK(reader.unreadableBytes() == 0); // and none of it is damage
     CHECK(decoder.undecodableRecords() == 0);
     REQUIRE(records.size() == 2);
 

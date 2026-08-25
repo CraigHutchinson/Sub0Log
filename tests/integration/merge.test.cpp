@@ -120,7 +120,8 @@ TEST_CASE("segments with different anchor pairs merge into aligned global order"
     for (const MergedRecord& r : merged) {
         REQUIRE(r.record_.site_ != nullptr);
     }
-    CHECK(merger.totals().unreadableBytes_ > 0u); // trailing chunk space, both segments
+    CHECK(merger.totals().unwrittenBytes_ > 0u); // trailing chunk space, both segments
+    CHECK(merger.totals().unreadableBytes_ == 0u); // and no damage in either
     CHECK(merger.totals().undecodableRecords_ == 0u);
 }
 
@@ -238,9 +239,9 @@ TEST_CASE("Merger totals sum unreadable bytes and undecodable records across seg
     REQUIRE(merger.addSegment(seg2.span()) == SegmentError::Ok);
 
     const Merger::Totals totals = merger.totals();
-    // seg1's stale chunk body (256 - sizeof(ChunkHeader)) plus its trailing
-    // unwritten space in chunk 0 must both be present.
+    // seg1's stale chunk body is damage; chunk 0's trailing space is not.
     CHECK(totals.unreadableBytes_ >= (256u - sizeof(wire::ChunkHeader)));
+    CHECK(totals.unwrittenBytes_ > 0u);
     CHECK(totals.undecodableRecords_ == 1u);
 
     const std::vector<MergedRecord> merged = merger.merged();

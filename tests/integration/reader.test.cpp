@@ -82,17 +82,20 @@ TEST_CASE("decoder round-trips typed arguments through a hand-built segment")
     CHECK(std::get<bool>(rec.args_[3]) == true);
     CHECK(std::get<std::string_view>(rec.args_[4]) == "hello");
 
-    // Trailing chunk space beyond the last record is unwritten (zero, never
-    // committed) and must be reported, not silently ignored (R3.3/R9.2).
+    // Trailing chunk space beyond the last record was never written. It is
+    // reported, not silently ignored (R3.3/R9.2), but as unwritten space --
+    // this segment suffered no damage and its damage count says so.
     const std::uint64_t bodyBytes = builder.chunkBytes() - sizeof(wire::ChunkHeader);
-    CHECK(reader.unreadableBytes() == bodyBytes - consumed);
+    CHECK(reader.unwrittenBytes() == bodyBytes - consumed);
+    CHECK(reader.unreadableBytes() == 0u);
+    CHECK(reader.accountedBytes() == bodyBytes - consumed);
     (void)recordStart;
 }
 
 // ---------------------------------------------------------------------------
-// (2) Truncated tail: an uncommitted (zero) head word mid-chunk.
+// (2) An uncommitted (zero) head word mid-chunk: the writer simply stopped.
 
-TEST_CASE("an uncommitted head word stops the chunk and counts the remainder exactly")
+TEST_CASE("a zero head word ends the chunk as unwritten space, not as damage")
 {
     SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 777u, 1u, 0u, 0u);
     std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
@@ -109,18 +112,19 @@ TEST_CASE("an uncommitted head word stops the chunk and counts the remainder exa
     REQUIRE(reader.valid());
 
     std::size_t yielded = 0;
-    const std::uint64_t unreadable = reader.visit([&](const RecordView&) { ++yielded; });
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++yielded; });
 
     CHECK(yielded == 1u);
     const std::uint64_t bodyBytes = builder.chunkBytes() - sizeof(wire::ChunkHeader);
-    CHECK(unreadable == bodyBytes - consumed);
-    CHECK(reader.unreadableBytes() == unreadable);
+    CHECK(damage == 0u); // a producer that stopped is not a producer that broke
+    CHECK(reader.unreadableBytes() == damage);
+    CHECK(reader.unwrittenBytes() == bodyBytes - consumed);
 }
 
 // ---------------------------------------------------------------------------
 // (3) Torn head word: garbage without the commit tag.
 
-TEST_CASE("a torn head word is contained exactly like an uncommitted one")
+TEST_CASE("a torn head word is damage, and is counted apart from unwritten space")
 {
     SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 777u, 1u, 0u, 0u);
     std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
@@ -138,11 +142,15 @@ TEST_CASE("a torn head word is contained exactly like an uncommitted one")
     REQUIRE(reader.valid());
 
     std::size_t yielded = 0;
-    const std::uint64_t unreadable = reader.visit([&](const RecordView&) { ++yielded; });
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++yielded; });
 
     CHECK(yielded == 1u);
     const std::uint64_t bodyBytes = builder.chunkBytes() - sizeof(wire::ChunkHeader);
-    CHECK(unreadable == bodyBytes - consumed);
+    // The contrast with the previous case is the point: identical layout,
+    // one non-zero word, and the reader calls this one damage. That is what
+    // makes the number answer "how much did I lose?".
+    CHECK(damage == bodyBytes - consumed);
+    CHECK(reader.unwrittenBytes() == 0u);
 }
 
 // ---------------------------------------------------------------------------
@@ -162,11 +170,12 @@ TEST_CASE("an oversized payload length is bounds-checked before use, never crash
     REQUIRE(reader.valid());
 
     std::size_t yielded = 0;
-    const std::uint64_t unreadable = reader.visit([&](const RecordView&) { ++yielded; });
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++yielded; });
 
     CHECK(yielded == 0u); // never yielded: it would have run outside the chunk
     const std::uint64_t bodyBytes = builder.chunkBytes() - sizeof(wire::ChunkHeader);
-    CHECK(unreadable == bodyBytes); // whole remainder from the head word onward
+    CHECK(damage == bodyBytes); // whole remainder from the head word onward
+    CHECK(reader.unwrittenBytes() == 0u);
 }
 
 // ---------------------------------------------------------------------------
@@ -193,14 +202,17 @@ TEST_CASE("a chunk from a stale generation is skipped and its body counted")
     REQUIRE(reader.valid());
 
     std::vector<std::uint32_t> chunkIndices;
-    const std::uint64_t unreadable =
+    const std::uint64_t damage =
         reader.visit([&](const RecordView& v) { chunkIndices.push_back(v.chunkIndex_); });
 
     REQUIRE(chunkIndices.size() == 1u);
     CHECK(chunkIndices[0] == 0u);
 
     const std::uint64_t bodyBytes = builder.chunkBytes() - sizeof(wire::ChunkHeader);
-    CHECK(unreadable == (bodyBytes - consumed0) + bodyBytes);
+    // A previous generation's chunk is damage -- positive evidence of
+    // storage that is not ours (R3.4). Chunk 0's unused tail is not.
+    CHECK(damage == bodyBytes);
+    CHECK(reader.unwrittenBytes() == bodyBytes - consumed0);
 }
 
 // ---------------------------------------------------------------------------
