@@ -278,12 +278,23 @@ TEST_CASE("encodeArgs round-trips a mix of fixed and variable arguments")
 }
 
 // A type whose encoded size and whose wire type code disagree corrupts every
-// argument after it in the record: the encoder writes sizeof(long double)
-// bytes, the decoder reads the 8 that F64 means, and the rest of the payload
-// shifts. The wire has no code for it, so the only place to catch it is here.
-static_assert(!detail::Encodable<long double>,
-              "long double must not satisfy Encodable: it maps to F64 but is "
-              "not 8 bytes, which would silently desync the record");
+// argument after it in the record: the encoder would write sizeof(long
+// double) bytes, the decoder reads the 8 that F64 means, and the rest of the
+// payload shifts. The wire has no code for it, so the only place to catch it
+// is here.
+//
+// Which makes `long double` a *platform* question rather than a banned type,
+// and asserting otherwise is what this test used to do -- it failed on Apple
+// ARM64, where long double is plain binary64 and 8 bytes wide, and where
+// encoding it as F64 is therefore exactly right. The rule the concept
+// enforces is "the bytes written must equal the bytes read", not "not this
+// type", so that is what is asserted: refused where it is 16 bytes (x86-64
+// SysV, 80-bit extended), accepted where it is 8 (AArch64 Darwin, MSVC).
+static_assert(sizeof(long double) == 8u ? detail::Encodable<long double>
+                                        : !detail::Encodable<long double>,
+              "long double must satisfy Encodable exactly when its size "
+              "matches the 8 bytes F64 means; anywhere else it would silently "
+              "desync every argument after it");
 
 // The general rule the above is one instance of: for every fixed-size type
 // the encoder accepts, the bytes it writes must equal the bytes the decoder

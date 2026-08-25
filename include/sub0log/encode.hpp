@@ -60,11 +60,14 @@ concept StringViewLike =
 
 /// Every fixed-size type must have a wire size the decoder agrees on: the
 /// encoder writes fixedWireSize<T>() bytes and the reader consumes
-/// wire::fixedSizeOf(code). `long double` is the type that breaks this --
-/// it maps to F64 but is 16 bytes on x86-64, so it would write 16 and the
-/// reader would take 8, shifting every argument after it in the record.
-/// Refusing it at compile time is the only place that mismatch can be
-/// caught, since the wire has no room to describe it.
+/// wire::fixedSizeOf(code). `long double` is the type that tests this, and
+/// the answer is per-platform rather than per-type: it maps to F64 and is
+/// 16 bytes on x86-64 SysV, so it would write 16 where the reader takes 8
+/// and shift every argument after it -- but on AArch64 Darwin and on MSVC
+/// it *is* binary64 and 8 bytes, where F64 is simply correct. The size
+/// clause below therefore admits it exactly where the sizes agree, which is
+/// the only place the mismatch can be caught since the wire has no room to
+/// describe it.
 template <typename T>
 concept FixedEncodable = std::same_as<Decayed<T>, bool>
                       || std::same_as<Decayed<T>, char>
