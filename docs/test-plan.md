@@ -12,8 +12,14 @@ Three ctest labels, three executables, one discipline each:
 | `unit` | `Sub0LogUnitTests` | pure logic against `wire.hpp`/`encode.hpp`/`context.hpp`; no I/O, no processes |
 | `integration` | `Sub0LogIntegrationTests` | components against real files or hand-built images, one process |
 | `system` | `Sub0LogSystemTests` | whole-library promises: hard kills, several processes, spawned children |
+| `example` | `examples/` (8 programs) | consumer-shaped usage, run unattended so it cannot rot |
 
-Run one with `ctest -L unit` (or `integration`, `system`).
+Run one with `ctest -L unit` (or `integration`, `system`, `example`).
+
+Beside them sits **`Sub0LogStress`** (`benchmarks/stress/`, built with
+`-DSUB0LOG_BUILD_BENCHMARKS=ON`), which is not a ctest label because it is
+not a set of cases: it is one harness that puts the library under load and
+asserts invariants, exiting nonzero when one breaks. See "Stress" below.
 
 ### What runs where
 
@@ -21,9 +27,14 @@ Measured from the CI matrix, not estimated:
 
 | platform | unit | integration | system | total |
 |---|---:|---:|---:|---:|
-| Linux (GCC, Clang, GCC+ASan/UBSan) | 17 | 22 | 13 | **52** |
-| macOS (AppleClang) | 17 | 22 | 13 | **52** |
-| Windows (MSVC) | 17 | 22 | 1 | **40** |
+| Linux (GCC, Clang, GCC+ASan/UBSan) | 17 | 22 | 14 | **53** |
+| macOS (AppleClang) | 17 | 22 | 14 | **53** |
+| Windows (MSVC) | 17 | 22 | 2 | **41** |
+
+The `example` label and the stress harness run on Linux in CI; the examples
+that `fork` or spawn (04, 05, 06) are excluded from the Windows build by
+`examples/CMakeLists.txt` rather than compiled and skipped, for the same
+reason the system tests are.
 
 `unit` and `integration` run identically everywhere -- the format, the
 encoder, the reader and the recovery paths are all platform-agnostic by
@@ -71,7 +82,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 |---|---|
 | R1.1 no formatting | design: no format call exists on the emit path; bench `emit.*` bounds the cost |
 | R1.2 no allocation | encode refusal below + bench; sanitizer runs would surface hidden allocation as noise in `emit.*` |
-| R1.3 no lock | design (one `fetch_add` claim) + bench `claim`, `throughput` scaling 1→4 threads |
+| R1.3 no lock | design (one `fetch_add` claim) + bench `claim`, `throughput` scaling 1→4 threads; stress `oversubscribe` holds the accounting invariant at 4x cores, and ThreadSanitizer over every stress scenario reported no race |
 | R1.4 disabled cost, args unevaluated | integration "with no Logger bound, the macro is a no-op and never evaluates its arguments"; bench `emit.disabled`, `emit.unbound` |
 | R2.1 typed arrival | integration "decoder round-trips typed arguments…"; system "a logged record round-trips typed through the file" |
 | R2.2 field filtering | decoded fields asserted per record (subsystem, severity, thread, correlation, time) across reader/merge/system tests |
@@ -88,12 +99,12 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R5.5 non-cooperating child captured | system child tests: streams, exit codes, signals, caps, no-logger |
 | R5.6 interception | system: suppress (counted), throwing matcher (logs anyway), harvest |
 | R6 correlation is a field | unit scope tests; system round-trip asserts equality on the field |
-| R7.1 scoped instance, drain sync | every integration/system test uses `ScopedBind` over a temp dir |
+| R7.1 scoped instance, drain sync | every integration/system test uses `ScopedBind` over a temp dir; system "a call site reached under a second Logger is announced into that segment too" is the regression for the defect that broke this for shared call sites |
 | R7.2 no test-only branches | discipline + review; nothing in `include/` references a test macro |
-| R8.1 three platforms | CI matrix, all six jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 52/52; Windows/MSVC runs 40/40 (see "What runs where") |
+| R8.1 three platforms | CI matrix, all eight jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 53/53, Windows/MSVC 41/41, plus the `examples` and `stress-quick` gates (see "What runs where") |
 | R8.2 C++23, no extensions | `CXX_EXTENSIONS OFF` everywhere; CI compilers enforce |
 | R8.3 no producer deps | build: the library target links nothing; doctest/nanobench live in test/bench targets only |
-| R9.1 drops counted | integration "Logger counts drops once a tiny segment is exhausted"; child stats tests |
+| R9.1 drops counted | integration "Logger counts drops once a tiny segment is exhausted"; child stats tests; stress `saturate` asserts emitted == decoded + dropped under exhaustion |
 | R9.2 unclassified more visible | unit severity ordering (Unclassified > Error); truncation flags asserted wherever a cap cuts |
 
 The compile-time refusal (R1.2's sharpest edge) is a *negative concept
@@ -110,12 +121,30 @@ multi-threaded throughput, decode and merge throughput, and `format()`
 cost. `--json <path>` exports every result for trend collection; see
 `benchmarks/README.md`.
 
+## Stress (correctness under load)
+
+`Sub0LogStress` is the counterpart to the KPI suite: where benchmarks
+measure cost, this asserts that the promises still hold when the library is
+pushed, and exits nonzero when one does not. Seven scenarios -- `saturate`,
+`oversubscribe`, `cap_churn`, `live_tail`, `many_segments`, `child_flood`,
+`soak` -- with `--quick` (2.3s) wired into CI as a real gate. The
+load-bearing one is `saturate`'s **emitted == decoded + dropped**: a quick
+run pushes 2401 records into a segment sized for 196 and the accounting
+balances exactly.
+
+Because it asserts rather than measures it can gate, which
+`benchmarks-smoke` deliberately does not: shared runners make noisy
+numbers, and a noisy gate is one people learn to ignore.
+
 ## Known gaps, in one place
 
 - R4 dlopen ABI round-trip (v2).
-- Windows runs 40 of the 52 tests (see "What runs where"); the 12 it does
+- Windows runs 41 of the 53 tests (see "What runs where"); the 12 it does
   not run are the POSIX-only `system` tests, which need the v2 Windows arms
-  for process spawning and child capture.
+  for process spawning and child capture. Three of the eight examples are
+  excluded there for the same reason.
+- The stress harness and the examples run on Linux in CI only; neither has
+  been exercised on macOS or Windows runners.
 - Continuation-chain and Blob record kinds: format reserved, no writer yet,
   so no tests beyond the reader skipping them.
 - Power-loss durability: out of scope by design (`hard-kill.md`), not a gap.
