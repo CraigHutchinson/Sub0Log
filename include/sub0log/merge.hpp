@@ -28,11 +28,11 @@ struct MergedRecord {
 
 /** N-way merge over decoded segments, ordered by alignedNs_.
  *
- *  TODO(impl:reader): addSegment() decodes one segment image (keeping its
- *  Decoder alive for the string_views it hands out); merged() returns all
- *  records ordered by alignedNs_, ties broken by (processId, ownerThread,
- *  monoNs) for determinism. Unreadable-byte and undecodable-record counts
- *  are summed across segments and reported, never swallowed (R3.3, R9.2).
+ *  addSegment() decodes one segment image, keeping its Decoder alive for the
+ *  string_views it hands out; merged() returns all records ordered by
+ *  alignedNs_, ties broken by (processId, ownerThread, monoNs) for
+ *  determinism. Unreadable-byte and undecodable-record counts are summed
+ *  across segments and reported, never swallowed (R3.3, R9.2).
  */
 class Merger {
 public:

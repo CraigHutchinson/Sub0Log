@@ -54,7 +54,7 @@ enum class SegmentError : std::uint8_t {
 /** Walks a segment image chunk by chunk, yielding committed records in
  *  chunk order (per-thread order; cross-thread order is the Merger's job).
  *
- *  Contract (TODO(impl:reader) — implement exactly this):
+ *  Contract:
  *   - validate the SegmentHeader before touching any chunk; geometry from
  *     the header, never from defaults;
  *   - skip, and count in full, any chunk whose generation_ differs from the
@@ -129,13 +129,21 @@ struct DecodedRecord {
  *
  *  Site ids are scoped to one segment: one Decoder per segment.
  *
+ *  **Lifetime, and the mistake it invites.** Nothing here copies: a
+ *  DecodedSite's format_ and file_, and every string argument on a
+ *  DecodedRecord, are views into the image passed to decodeAll's reader. The
+ *  site table additionally *keeps* what it parsed -- a site already known is
+ *  not re-parsed -- so re-using one Decoder across a re-read into a
+ *  different buffer leaves its earlier sites pointing into a buffer that no
+ *  longer exists. A tailer that re-reads a growing segment must therefore
+ *  either keep one image buffer alive and only grow it, or build a fresh
+ *  Decoder for each fresh image. This cost an example author a segfault, so
+ *  it is written down rather than left to be rediscovered.
+ *
  *  Formatting is the one place text is made, and only on request: format()
  *  renders via std::format-style substitution of "{}" placeholders. A record
- *  whose definition is missing (pre-truncation damage) is surfaced via
- *  onUndecodable, never dropped silently (R9.2).
- *
- *  TODO(impl:reader): implement decode(), format(), and the definition
- *  parser, bounds-checking every embedded length against the payload.
+ *  whose definition is missing (pre-truncation damage) is counted
+ *  undecodable, never dropped silently (R9.2).
  */
 class Decoder {
 public:

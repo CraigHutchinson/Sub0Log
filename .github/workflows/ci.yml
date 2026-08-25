@@ -69,6 +69,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Debug --output-on-failure
 
+  examples:
+    # Examples are consumer code and rot silently if nobody builds them, so
+    # CI builds the ladder and runs every one of them unattended.
+    name: examples
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DSUB0LOG_BUILD_EXAMPLES=ON
+      - name: Build
+        run: cmake --build build
+      - name: Run the ladder
+        run: ctest --test-dir build -L example --output-on-failure
+
   benchmarks-smoke:
     # Keeps the KPI suite compiling and runnable. Deliberately not a
     # pass/fail number gate: shared CI runners produce noisy timings, and a

@@ -45,6 +45,22 @@ and the framing and recovery problems as the established binary formats already
 solved them. Start at `docs/README.md`. Two of those files record a claim that
 was wrong first and say why -- that is deliberate.
 
+## Examples
+
+`examples/` is a ladder, from a five-minute hello-world to the cases the
+design exists for: a fatal record written from inside a signal handler and
+recovered after the process is killed, two processes merged into one ordered
+stream, a third-party tool's output captured and intercepted, and a console
+tailer reading a segment while it is still being written.
+
+```sh
+cmake -S . -B build -DSUB0LOG_BUILD_EXAMPLES=ON && cmake --build build
+ctest --test-dir build -L example      # every example, run unattended
+```
+
+They are registered as tests on purpose: an example nobody builds is an
+example that has already stopped compiling. See `examples/README.md`.
+
 ## Status
 
 Early, but running. The v1 producer and reader paths are implemented and
