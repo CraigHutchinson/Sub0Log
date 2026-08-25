@@ -20,7 +20,7 @@ nothing here explains what `++i` does.
 | # | File | What it teaches | Requirements |
 |---|------|------------------|--------------|
 | 01 | `01_hello.cpp` | Create a `Logger`, log a few typed records, read them back with `SegmentReader` + `Decoder`. Nothing formats at the call site. | R1, R2.1 |
-| 02 | `02_subsystems.cpp` | The consumer, not the library, owns the subsystem vocabulary. Filtering ("Storage records at Warning or above") is field comparisons, never a text search. | R2.2, R2.3 |
+| 02 | `02_subsystems.cpp` | The consumer, not the library, owns the subsystem vocabulary -- and can declare its names into the segment so a recovered file reads "Storage" rather than "subsystem 1". Filtering ("Storage records at Warning or above") is field comparisons, never a text search. | R2.2, R2.3 |
 | 03 | `03_correlation.cpp` | `CorrelationScope` on several threads; joining an activity's records back together is an equality test on `correlationId_`. | R6.1, R6.2 |
 | 04 | `04_crash_handler.cpp` (POSIX) | Logging *from inside a signal handler*, and a hard `SIGKILL` with no handler at all -- both survive with no graceful shutdown anywhere. The example the whole library is for. | R3.1, R3.2 |
 | 05 | `05_multi_process.cpp` (POSIX) | A parent and a forked child each write their own segment; `Merger` produces one time-ordered stream, correlation crossing the process boundary via the environment. | R5.1-R5.4 |

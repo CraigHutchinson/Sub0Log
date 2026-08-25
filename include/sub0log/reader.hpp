@@ -165,15 +165,17 @@ struct DecodedRecord {
  *  Site ids are scoped to one segment: one Decoder per segment.
  *
  *  **Lifetime, and the mistake it invites.** Nothing here copies: a
- *  DecodedSite's format_ and file_, and every string argument on a
- *  DecodedRecord, are views into the image passed to decodeAll's reader. The
- *  site table additionally *keeps* what it parsed -- a site already known is
- *  not re-parsed -- so re-using one Decoder across a re-read into a
- *  different buffer leaves its earlier sites pointing into a buffer that no
- *  longer exists. A tailer that re-reads a growing segment must therefore
- *  either keep one image buffer alive and only grow it, or build a fresh
- *  Decoder for each fresh image. This cost an example author a segfault, so
- *  it is written down rather than left to be rediscovered.
+ *  DecodedSite's format_ and file_, every string argument on a
+ *  DecodedRecord, and every name subsystemName() returns are views into the
+ *  image passed to decodeAll's reader. The site table (and the subsystem
+ *  name table beside it) additionally *keeps* what it parsed -- a site or a
+ *  subsystem already known is not re-parsed -- so re-using one Decoder
+ *  across a re-read into a different buffer leaves its earlier sites (and
+ *  names) pointing into a buffer that no longer exists. A tailer that
+ *  re-reads a growing segment must therefore either keep one image buffer
+ *  alive and only grow it, or build a fresh Decoder for each fresh image.
+ *  This cost an example author a segfault, so it is written down rather
+ *  than left to be rediscovered.
  *
  *  Formatting is the one place text is made, and only on request: format()
  *  renders via std::format-style substitution of "{}" placeholders. A record
@@ -189,6 +191,13 @@ public:
     [[nodiscard]] std::vector<DecodedRecord> decodeAll(SegmentReader& reader);
 
     [[nodiscard]] const DecodedSite* siteFor(std::uint64_t siteId) const noexcept;
+
+    /// The name a SubsystemDefinition record gave this subsystem, or an
+    /// empty view when this segment never declared one -- the honest answer
+    /// for a segment produced before subsystem declarations existed, rather
+    /// than an invented placeholder. A duplicate declaration keeps the
+    /// first, exactly as a duplicate SiteDefinition does.
+    [[nodiscard]] std::string_view subsystemName(SubsystemId subsystem) const noexcept;
 
     /// Records whose site definition never appeared (damage upstream).
     [[nodiscard]] std::uint64_t undecodableRecords() const noexcept
@@ -217,6 +226,13 @@ private:
     [[nodiscard]] static bool parseSiteDefinition(std::span<const std::byte> payload,
                                                    DecodedSite& out);
 
+    /// Parses a SubsystemDefinition payload, bounds-checking the embedded
+    /// name length against `payload` before it is used. Returns false
+    /// (malformed, counted undecodable by the caller) rather than throwing
+    /// -- the same contract as parseSiteDefinition.
+    [[nodiscard]] static bool parseSubsystemDefinition(std::span<const std::byte> payload,
+                                                        SubsystemId& id, std::string_view& name);
+
     /// Decodes one fixed-size argument at `p`. `code` must not be Bytes or
     /// Invalid, and the caller must have bounds-checked fixedSizeOf(code)
     /// bytes at `p` already.
@@ -226,6 +242,7 @@ private:
     static void appendArgText(std::string& out, const DecodedArg& arg);
 
     std::unordered_map<std::uint64_t, DecodedSite> sites_{};
+    std::unordered_map<std::uint32_t, std::string_view> subsystemNames_{};
     std::uint64_t undecodable_{0};
     std::uint64_t skipped_{0};
 };
@@ -462,6 +479,22 @@ inline bool Decoder::parseSiteDefinition(std::span<const std::byte> payload, Dec
     return true;
 }
 
+inline bool Decoder::parseSubsystemDefinition(std::span<const std::byte> payload, SubsystemId& id,
+                                              std::string_view& name)
+{
+    if (payload.size() < sizeof(wire::SubsystemDefinitionPayload)) {
+        return false;
+    }
+    const auto prefix = wire::loadUnaligned<wire::SubsystemDefinitionPayload>(payload.data());
+    const std::size_t offset = sizeof(wire::SubsystemDefinitionPayload);
+    if (prefix.nameLen_ > payload.size() - offset) {
+        return false;
+    }
+    id = SubsystemId{prefix.subsystemId_};
+    name = std::string_view(reinterpret_cast<const char*>(payload.data() + offset), prefix.nameLen_);
+    return true;
+}
+
 inline DecodedArg Decoder::decodeFixedArg(const wire::TypeCode code, const std::byte* const p) noexcept
 {
     switch (code) {
@@ -523,6 +556,18 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
             }
             // Duplicate siteId: keep the first (try_emplace no-ops otherwise).
             sites_.try_emplace(site.siteId_, std::move(site));
+            return;
+        }
+        case wire::RecordKind::SubsystemDefinition: {
+            SubsystemId id{};
+            std::string_view name;
+            if (!parseSubsystemDefinition(v.payload_, id, name)) {
+                ++undecodable_;
+                return;
+            }
+            // Duplicate id: keep the first, exactly as a duplicate
+            // SiteDefinition is handled above.
+            subsystemNames_.try_emplace(id.value_, name);
             return;
         }
         case wire::RecordKind::Message:
@@ -610,6 +655,12 @@ inline const DecodedSite* Decoder::siteFor(std::uint64_t siteId) const noexcept
 {
     const auto it = sites_.find(siteId);
     return it == sites_.end() ? nullptr : &it->second;
+}
+
+inline std::string_view Decoder::subsystemName(const SubsystemId subsystem) const noexcept
+{
+    const auto it = subsystemNames_.find(subsystem.value_);
+    return it == subsystemNames_.end() ? std::string_view{} : it->second;
 }
 
 inline void Decoder::appendArgText(std::string& out, const DecodedArg& arg)

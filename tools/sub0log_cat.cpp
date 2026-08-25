@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 namespace {
@@ -178,7 +179,9 @@ void printUsage()
         "\n"
         "A directory argument means every *.s0l file directly inside it. Several\n"
         "segments are merged onto one timeline, which is how a group of processes\n"
-        "is meant to be read (docs/multi-process.md).\n",
+        "is meant to be read (docs/multi-process.md). Subsystems print by name\n"
+        "when the segment declared one and by number otherwise; --subsystem always\n"
+        "takes the number, which is what a record actually carries.\n",
         static_cast<int>(sub0log::libraryVersion().size()), sub0log::libraryVersion().data());
 }
 
@@ -283,18 +286,39 @@ int main(int argc, char** argv)
             anySegmentOpened = true;
         }
 
+        // Merger::subsystemName searches every segment it was given, so
+        // asking it once per record would be quadratic in a merge of many
+        // segments. The answer cannot change within a pass, so it is asked
+        // once per id.
+        std::unordered_map<std::uint32_t, std::string> subsystemLabels;
+        const auto labelFor = [&](const sub0log::SubsystemId subsystem) -> const std::string& {
+            const auto found = subsystemLabels.find(subsystem.value_);
+            if (found != subsystemLabels.end()) {
+                return found->second;
+            }
+            const std::string_view name = merger.subsystemName(subsystem);
+            std::string label = std::to_string(subsystem.value_);
+            if (!name.empty()) {
+                // Name and number both: the name is what a person reads, the
+                // number is what --subsystem takes and what the record
+                // actually carries.
+                label = std::string{name} + "(" + label + ")";
+            }
+            return subsystemLabels.emplace(subsystem.value_, std::move(label)).first->second;
+        };
+
         const auto merged = merger.merged();
         for (std::size_t i = alreadyPrinted; i < merged.size(); ++i) {
             const sub0log::MergedRecord& entry = merged[i];
             if (!wanted(options, entry.record_)) {
                 continue;
             }
-            std::printf("%s  pid=%llu tid=%llu  %s  %u  %s%s\n",
+            std::printf("%s  pid=%llu tid=%llu  %s  %s  %s%s\n",
                         wallTimeText(entry.alignedNs_).c_str(),
                         static_cast<unsigned long long>(entry.processId_),
                         static_cast<unsigned long long>(entry.record_.ownerThread_),
                         severityName(entry.record_.site_->severity_),
-                        entry.record_.site_->subsystem_.value_,
+                        labelFor(entry.record_.site_->subsystem_).c_str(),
                         sub0log::Decoder::format(entry.record_).c_str(),
                         entry.record_.truncated_ ? " [truncated]" : "");
         }

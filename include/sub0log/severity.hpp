@@ -32,8 +32,13 @@ enum class Severity : std::uint8_t {
     return static_cast<std::uint8_t>(value) >= static_cast<std::uint8_t>(threshold);
 }
 
-/// Opaque, consumer-defined. The consumer keeps the name table; a decoder
-/// labels what it reads with that table, and the library has no opinion.
+/// Opaque, consumer-defined: the library never enumerates subsystems and has
+/// no opinion about what a given id means. The consumer's name for one can
+/// travel inside the segment itself -- Logger::Options::subsystemNames_ at
+/// construction, or Logger::declareSubsystem() for one discovered later --
+/// via a SubsystemDefinition record (docs/record-model.md, "The library must
+/// not own the vocabulary"). Decoder::subsystemName() reads it back; an id
+/// nobody declared decodes to an empty name, never a guess.
 struct SubsystemId {
     std::uint32_t value_{};
 

@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -110,7 +111,26 @@ int main()
 {
     const auto dir = makeScratchDir("subsystems");
 
-    auto logger = sub0log::Logger::create({.directory_ = dir.string(), .stem_ = "subsystems"});
+    // Declaring the names puts this table *into the segment*, as
+    // SubsystemDefinition records written before anything else. It is
+    // optional and it changes nothing above: the library still ships no
+    // enumeration of subsystems and still has no opinion about what 1
+    // means. What it buys is that a segment recovered from a customer
+    // machine a year from now decodes to "Storage" rather than
+    // "subsystem 1", without the header this file's table lives in.
+    static constexpr std::array<std::pair<sub0log::SubsystemId, std::string_view>, 3>
+        cDeclaredNames{{
+            {cStorage, "Storage"},
+            {cNetwork, "Network"},
+            {cUi, "Ui"},
+        }};
+
+    sub0log::Logger::Options options{};
+    options.directory_ = dir.string();
+    options.stem_ = "subsystems";
+    options.subsystemNames_ = cDeclaredNames;
+
+    auto logger = sub0log::Logger::create(options);
     if (!logger.valid()) {
         std::fprintf(stderr, "could not create a Logger\n");
         return 1;
@@ -147,6 +167,23 @@ int main()
         std::printf("[%-7s] %-11s %s\n", nameOf(record.site_->subsystem_),
                     severityName(record.site_->severity_).data(),
                     sub0log::Decoder::format(record).c_str());
+    }
+
+    // The same names, resolved without nameOf() and without this file: the
+    // decoder read them out of the segment, where create() declared them.
+    // That is the difference between a table you have to keep and one the
+    // recording carries -- and it is what `sub0log-cat` prints for a
+    // segment nobody has the source of.
+    std::printf("-- the same names, read back out of the segment itself --\n");
+    for (const auto& entry : cDeclaredNames) {
+        const std::string_view declared = decoder.subsystemName(entry.first);
+        std::printf("   subsystem %u is \"%.*s\"%s\n", entry.first.value_,
+                    static_cast<int>(declared.size()), declared.data(),
+                    declared == entry.second ? "" : "  <- MISMATCH");
+        if (declared != entry.second) {
+            std::fprintf(stderr, "the segment did not carry the declared name\n");
+            return 1;
+        }
     }
 
     // The filter that matters: Storage records at Warning or above. This

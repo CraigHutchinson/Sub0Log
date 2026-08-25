@@ -127,8 +127,36 @@ path that runs per operation", not "no allocation anywhere".
 A logging library that defines the subsystem enumeration cannot be reused by
 anything that needs a different one, and that is the most common way an
 extracted logging library ends up not extracted. The library takes an opaque
-subsystem id plus a consumer-supplied name table, so that a decoder can label
-what it reads without the library having an opinion about what the labels are.
+subsystem id the consumer assigns, and it has no opinion about what a given
+id means -- that much does not change below.
+
+What used to stop there was the *spelling*. The consumer kept the id-to-name
+table, external to the stream, and a decoder resolved a subsystem by
+consulting it -- the one axis where "everything needed to decode a record
+precedes it in the stream" was not actually true, because the name was not in
+the stream at all. Held up against the strict self-description this file
+argues for above, that was a hole: a segment recovered from a machine that no
+longer has the producing binary, or even the producing team, decodes every
+record to a subsystem id and nothing that says what the id meant.
+
+So a **`SubsystemDefinition` record** does for a subsystem id what a
+`SiteDefinition` record does for a call site: it carries the id's name into
+the segment itself, written once per id the producer knows about --
+declared at `Logger::create()` for the names known up front, or via
+`Logger::declareSubsystem()` for one discovered later, such as a plugin
+registering itself. A decoder that has never seen a definition for an id (a
+segment written before this existed, or one whose producer chose not to
+declare a given id) reports an empty name rather than inventing one; the
+record it names still decodes.
+
+This does not put the vocabulary back in the library's hands. The library
+still does not enumerate subsystems, does not decide which conditions map to
+which id, and does not require a single name to be declared -- it only
+carries, opaquely, whatever bytes the consumer hands it, the same
+undifferentiated byte-carrying `encode.hpp` already does for a site's format
+string. What moved is *where the spelling travels*: with the segment now,
+rather than in a header that has to be kept forever, by hand, next to
+whichever file happens to hold the id assignments.
 
 The severity ladder is the exception and belongs in the library, because the
 drop and retention rules key off it -- if severity were consumer-defined, those

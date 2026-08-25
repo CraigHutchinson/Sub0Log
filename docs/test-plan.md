@@ -83,7 +83,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R1.1 no formatting | design: no format call exists on the emit path; bench `emit.*` bounds the cost |
 | R1.2 no allocation | encode refusal below + bench; sanitizer runs would surface hidden allocation as noise in `emit.*`; the full ledger, including the one allocation that is not ours (dynamic TLS in a plugin), is in `docs/memory.md` |
 | R1.3 no lock | `static_assert` that 64-bit atomics are lock-free, so a target that would silently substitute a lock table fails the build; design (one `fetch_add` claim) + bench `claim`, `throughput` scaling 1→4 threads; stress `oversubscribe` holds the accounting invariant at 4x cores, and ThreadSanitizer over every stress scenario reported no race |
-| R1.4 disabled cost, args unevaluated | integration "with no Logger bound, the macro is a no-op and never evaluates its arguments"; bench `emit.disabled`, `emit.unbound` |
+| R1.4 disabled cost, args unevaluated | integration "with no Logger bound, the macro is a no-op and never evaluates its arguments"; bench `emit.disabled`, `emit.unbound`; integration `threshold.test.cpp` covers the per-subsystem levels the check now resolves, and the cold-path attribute on the unbound branch is what keeps `emit.disabled` at the number it was before R9.3 existed |
 | R2.1 typed arrival | integration "decoder round-trips typed arguments…"; system "a logged record round-trips typed through the file" |
 | R2.2 field filtering | decoded fields asserted per record (subsystem, severity, thread, correlation, time) across reader/merge/system tests |
 | R2.3 assert on fields | every system test does exactly this; `format()` tests are the only text tests |
@@ -102,16 +102,22 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R7.1 scoped instance, drain sync | every integration/system test uses `ScopedBind` over a temp dir; system "a call site reached under a second Logger is announced into that segment too" is the regression for the defect that broke this for shared call sites |
 | R7.2 no test-only branches | discipline + review; nothing in `include/` references a test macro |
 | R8.1 three platforms | CI matrix, all eight jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 53/53, Windows/MSVC 41/41, plus the `examples` and `stress-quick` gates (see "What runs where") |
-| R8.2 C++23, no extensions | `CXX_EXTENSIONS OFF` everywhere; CI compilers enforce |
+| R8.2 C++23, no extensions | `CXX_EXTENSIONS OFF` everywhere; CI compilers enforce. One isolated exception, `SUB0LOG_COLD_PATH` (instance.hpp): no standard attribute says "keep this out of the caller", `[[unlikely]]` was tried and measured insufficient, and the comment carries both numbers |
+| R8.1 installable | `packaging::find_package` installs to a throwaway prefix and builds an out-of-tree consumer against nothing else, on Ubuntu and Windows; the consumer sets no standard of its own, so C++23 and `/Zc:preprocessor` have to arrive as usage requirements or it fails |
 | R8.3 no producer deps | build: the library target links nothing; doctest/nanobench live in test/bench targets only |
 | R9.1 drops counted | integration "Logger counts drops once a tiny segment is exhausted"; child stats tests; stress `saturate` asserts emitted == decoded + dropped under exhaustion |
 | R9.2 unclassified more visible | unit severity ordering (Unclassified > Error); truncation flags asserted wherever a cap cuts |
 | R9.3 unreachable call site counted | system `binding.test.cpp`: unbound emits counted exactly, a bound instance never moves the counter (threshold-suppressed sites included), and a fork-detached child reports its own losses through its exit status |
 
 The compile-time refusal (R1.2's sharpest edge) is a *negative concept
-assertion*: `static_assert(!detail::Encodable<std::string>)` in
-`unit/encode.test.cpp`. It fails the build, not a test run, which is the
-point.
+assertion* in `unit/encode.test.cpp`: `static_assert(!detail::Encodable<T>)`
+for `std::vector<int>`, `std::filesystem::path` and
+`std::chrono::milliseconds`, each of which needs a representation decision
+only the call site can make. It fails the build, not a test run, which is
+the point. `std::string` used to be on that list and is not any more: the
+refusal's stated reason (a hidden allocation) was not true of a const
+reference viewed as bytes, so it now has a *positive* assertion beside the
+negative ones.
 
 ## Benchmarks (KPI collection)
 

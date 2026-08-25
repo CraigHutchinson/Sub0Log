@@ -67,6 +67,8 @@ enum class RecordKind : std::uint8_t {
     ChildOutput = 5,   ///< One captured line of a child's stdout/stderr (R5.5).
     ChildStart = 6,    ///< A third-party child was spawned: command, correlation.
     ChildExit = 7,     ///< That child ended: exit code or signal.
+    SubsystemDefinition = 8, ///< Names one SubsystemId; strict self-description
+                             ///< extended to the subsystem axis (docs/record-model.md).
 };
 
 enum RecordFlags : std::uint8_t {
@@ -263,6 +265,21 @@ struct SiteDefinitionPayload {
 };
 static_assert(std::is_trivially_copyable_v<SiteDefinitionPayload>);
 static_assert(sizeof(SiteDefinitionPayload) == 24u);
+
+/// Names one SubsystemId, the same way SiteDefinition names one site: an id
+/// the producer already carries, plus a length-prefixed string so the
+/// segment can be decoded without the table that used to live in a header
+/// (docs/record-model.md, "The library must not own the vocabulary" -- the
+/// vocabulary is still the consumer's, but its spelling now travels with
+/// the segment that used it).
+struct SubsystemDefinitionPayload {
+    std::uint32_t subsystemId_;
+    std::uint16_t nameLen_;
+    std::uint16_t reserved0_; ///< Explicit tail padding; keeps the size honest.
+    // Tail: nameLen_ bytes, the subsystem's name.
+};
+static_assert(std::is_trivially_copyable_v<SubsystemDefinitionPayload>);
+static_assert(sizeof(SubsystemDefinitionPayload) == 8u);
 
 // ---------------------------------------------------------------------------
 // Tiny helpers shared by encoder and decoder

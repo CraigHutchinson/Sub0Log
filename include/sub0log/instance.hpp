@@ -12,7 +12,11 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 
 /// Keeps a cold branch's body out of the function that tests for it. There
 /// is no standard spelling for "do not inline this" -- `[[unlikely]]` says
@@ -142,6 +146,16 @@ public:
         std::string stem_{"sub0log"};
         detail::SegmentOptions segment_{};
         Severity threshold_{Severity::Trace};
+
+        /// Subsystem names to declare into the fresh segment before anything
+        /// else can be written to it, so the segment carries its own
+        /// vocabulary the way it already carries its own site definitions
+        /// (docs/record-model.md, "strict self-description" extended to the
+        /// subsystem axis). Optional: an empty span is the default, costs
+        /// nothing here beyond an empty loop, and touches nothing on the
+        /// emit path. The span only needs to outlive create() -- the names
+        /// themselves are copied into the segment, not retained.
+        std::span<const std::pair<SubsystemId, std::string_view>> subsystemNames_{};
     };
 
     /// On failure the result has valid() false and error() set; binding an
@@ -243,6 +257,14 @@ public:
             subsystemThreshold_[subsystem.value_].store(severity, std::memory_order_relaxed);
         }
     }
+
+    /// Declares one subsystem's name after construction -- a plugin
+    /// registering itself, typically -- and writes the record immediately.
+    /// Control-thread work, exactly like create()'s declarations: nothing
+    /// here is reachable from detail::emit, so it costs the emit path
+    /// nothing. A drop is counted through the same reserveRecord() path as
+    /// every other record (R9.1).
+    void declareSubsystem(SubsystemId subsystem, std::string_view name) noexcept;
 
     /// This thread's current writer: the same chunk across calls as long as
     /// it is still bound to this Logger and this segment's generation.
@@ -361,6 +383,105 @@ private:
 // ---------------------------------------------------------------------------
 // Implementation
 
+namespace detail {
+
+/** The fit-retry-drop reservation, in one place.
+ *
+ *  Every record written anywhere in this library follows the same three
+ *  steps: try this thread's current chunk, claim a fresh one if the record
+ *  does not fit, and count a drop if even a new chunk cannot take it
+ *  (R9.1). It was written out three times -- twice on the emit path, once
+ *  in child capture -- and the copies had already drifted apart on who
+ *  counts the drop, which is exactly how a counter starts lying.
+ *
+ *  On success `writer` names the chunk the reservation belongs to; the
+ *  caller commits through it. On failure the drop is already counted and
+ *  the returned reservation is invalid.
+ */
+[[nodiscard]] inline ChunkWriter::Reservation
+reserveRecord(Logger& logger, const std::uint32_t payloadBytes, ChunkWriter*& writer) noexcept
+{
+    writer = logger.currentWriter();
+    ChunkWriter::Reservation slot =
+        (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
+    if (slot.valid()) {
+        return slot;
+    }
+
+    writer = logger.refillWriter();
+    slot = (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
+    if (!slot.valid()) {
+        logger.countDrop();
+    }
+    return slot;
+}
+
+/** Writes one SubsystemDefinition record: the id, then the name capped and
+ *  encoded exactly as SiteDefinition's format/file strings are (a u16
+ *  length then bytes, wire::cInlineBytesCap ceiling, cFlagTruncated set and
+ *  counted when the cap cuts real data -- R9.2, never a silent cut).
+ *
+ *  Goes through reserveRecord() rather than open-coding fit/retry/drop --
+ *  that helper exists precisely because three copies of this sequence had
+ *  already drifted apart on who counts the drop. This one runs from
+ *  create() or declareSubsystem(), both control-thread callers, never from
+ *  detail::emit -- so, unlike writeSiteDefinition, there is no need to
+ *  shrink the record to fit a brand-new empty chunk: a name that does not
+ *  fit is capped up front, and a record that still does not fit is simply
+ *  dropped and counted like any other.
+ *
+ *  This does not bump wire::cFormatVersion. Verified against reader.hpp
+ *  before relying on it: Decoder::decodeAll's first pass switches on
+ *  RecordKind, and its `default` arm does `++skipped_` with the comment
+ *  "intact, just not a shape this layer decodes" -- so an older decoder
+ *  built before SubsystemDefinition existed reads a segment that has one,
+ *  does not recognise kind 8, and counts it as skipped rather than
+ *  undecodable. The record is unknown to that decoder, not damage.
+ */
+[[nodiscard]] inline bool writeSubsystemDefinition(Logger& logger, const SubsystemId subsystem,
+                                                    std::string_view name) noexcept
+{
+    bool truncated = false;
+    if (name.size() > wire::cInlineBytesCap) {
+        name = name.substr(0, wire::cInlineBytesCap);
+        truncated = true;
+    }
+    const auto nameLen = static_cast<std::uint16_t>(name.size());
+    const auto payloadBytes =
+        static_cast<std::uint32_t>(sizeof(wire::SubsystemDefinitionPayload) + nameLen);
+
+    ChunkWriter* writer = nullptr;
+    const ChunkWriter::Reservation slot = reserveRecord(logger, payloadBytes, writer);
+    if (!slot.valid()) {
+        return false; // reserveRecord() already counted the drop.
+    }
+
+    wire::SubsystemDefinitionPayload payload{};
+    payload.subsystemId_ = subsystem.value_;
+    payload.nameLen_ = nameLen;
+    payload.reserved0_ = 0u;
+
+    std::byte* p = slot.payload_;
+    wire::storeUnaligned(p, payload);
+    p += sizeof(payload);
+    if (nameLen > 0u) {
+        std::memcpy(p, name.data(), nameLen);
+    }
+
+    wire::RecordHead head{};
+    head.payloadBytes_ = static_cast<std::uint16_t>(payloadBytes);
+    head.kind_ = wire::RecordKind::SubsystemDefinition;
+    head.flags_ = truncated ? static_cast<std::uint8_t>(wire::cFlagTruncated) : std::uint8_t{0};
+    writer->commit(slot, head);
+
+    if (truncated) {
+        logger.countTruncation();
+    }
+    return true;
+}
+
+} // namespace detail
+
 [[nodiscard]] inline Logger Logger::create(const Options& options) noexcept
 {
     Logger result{};
@@ -371,6 +492,13 @@ private:
     result.segment_ = detail::Segment::create(options.directory_, options.stem_, options.segment_);
     result.rootCorrelation_ = detail::correlationFromEnvironment();
     result.setThreshold(options.threshold_);
+
+    // Declared before anything else can reach this segment: the same
+    // "definition precedes first use" discipline SiteDefinition already
+    // follows, applied to the subsystem axis (docs/record-model.md).
+    for (const auto& [id, name] : options.subsystemNames_) {
+        (void)detail::writeSubsystemDefinition(result, id, name);
+    }
     return result;
 }
 
@@ -430,39 +558,9 @@ inline void Logger::countTruncation() noexcept
                 truncated_.load(std::memory_order_relaxed)};
 }
 
-namespace detail {
-
-/** The fit-retry-drop reservation, in one place.
- *
- *  Every record written anywhere in this library follows the same three
- *  steps: try this thread's current chunk, claim a fresh one if the record
- *  does not fit, and count a drop if even a new chunk cannot take it
- *  (R9.1). It was written out three times -- twice on the emit path, once
- *  in child capture -- and the copies had already drifted apart on who
- *  counts the drop, which is exactly how a counter starts lying.
- *
- *  On success `writer` names the chunk the reservation belongs to; the
- *  caller commits through it. On failure the drop is already counted and
- *  the returned reservation is invalid.
- */
-[[nodiscard]] inline ChunkWriter::Reservation
-reserveRecord(Logger& logger, const std::uint32_t payloadBytes, ChunkWriter*& writer) noexcept
+inline void Logger::declareSubsystem(const SubsystemId subsystem, const std::string_view name) noexcept
 {
-    writer = logger.currentWriter();
-    ChunkWriter::Reservation slot =
-        (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
-    if (slot.valid()) {
-        return slot;
-    }
-
-    writer = logger.refillWriter();
-    slot = (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
-    if (!slot.valid()) {
-        logger.countDrop();
-    }
-    return slot;
+    (void)detail::writeSubsystemDefinition(*this, subsystem, name);
 }
-
-} // namespace detail
 
 } // namespace sub0log

@@ -12,6 +12,23 @@
  *
  *  Nothing here formats, allocates, or locks; a disabled site costs a relaxed
  *  load and a comparison and does not evaluate its arguments (R1).
+ *
+ *  **From a signal handler:** a thread that has already emitted at least one
+ *  record may emit from a handler. The store sequence itself is
+ *  async-signal-safe by construction -- no allocation, no lock, no errno
+ *  traffic, one release store to commit -- which is what
+ *  `examples/04_crash_handler.cpp` relies on when it logs a Fatal record
+ *  from inside a handler and then lets the signal kill the process. The
+ *  qualification is the way in, not the path: the first emit on a thread
+ *  reaches a `thread_local` writer cache, and `Logger::create` runs a
+ *  function-local static for its fork handler. In an executable the cache
+ *  is constant-initialised straight into `.tbss` -- no guard variable and
+ *  no runtime call appear in the object file at all -- but built `-fPIC`
+ *  into a shared library the same access goes through `__tls_get_addr`,
+ *  which may allocate the first time a thread touches the block. That is
+ *  the whole of the difference, and it is why the contract is "already
+ *  emitted once" rather than "always": warm the thread and bind the Logger
+ *  before installing the handler, which every real program does anyway.
  */
 
 #include "context.hpp"

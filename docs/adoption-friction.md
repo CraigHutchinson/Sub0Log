@@ -236,8 +236,9 @@ cheap.
 
 ### 4.1 Windows paths outside the active code page -- **Bug**
 
-Four `CreateFileA` calls in `detail/platform.hpp`. A directory containing a
-non-ASCII character -- which includes any path under a user profile whose
+Two `CreateFileA` calls in `detail/platform.hpp` (an earlier version of this
+file said four, having counted the two error tags that name them alongside
+the calls themselves). A directory containing a non-ASCII character -- which includes any path under a user profile whose
 name is not ASCII, a common case outside en-US -- fails to open, and the
 Logger comes back invalid. Long paths (`\\?\` prefixed, over `MAX_PATH`)
 fail for the same reason.

@@ -12,12 +12,15 @@
 
 #include "support/test_framework.hpp"
 
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #if defined(SUB0LOG_CAT_PATH)
 
@@ -47,8 +50,13 @@ TEST_CASE("sub0log-cat renders a segment a producer just wrote")
     const auto directory = sub0log::test::freshDirectory("cattool");
     const auto output = directory / "out.txt";
 
+    static constexpr std::array<std::pair<sub0log::SubsystemId, std::string_view>, 1>
+        cNames{{{cStorage, "storage"}}};
     {
-        auto logger = sub0log::Logger::create({.directory_ = directory.string()});
+        sub0log::Logger::Options options{};
+        options.directory_ = directory.string();
+        options.subsystemNames_ = cNames;
+        auto logger = sub0log::Logger::create(options);
         REQUIRE(logger.valid());
         sub0log::Logger::ScopedBind bind{logger};
         sub0log::CorrelationScope correlation{4242};
@@ -70,6 +78,12 @@ TEST_CASE("sub0log-cat renders a segment a producer just wrote")
         // The severity and subsystem are columns, not text to search for in
         // the message -- that is the whole R2.2 point, and the tool keeps it.
         CHECK(text.find("ERROR") != std::string::npos);
+        // A declared subsystem prints by name, with the number it was
+        // declared for still shown: the name is for the reader, the number
+        // is what --subsystem takes and what the record carries.
+        CHECK(text.find("storage(3)") != std::string::npos);
+        // An undeclared one prints as the bare number rather than a guess.
+        CHECK(text.find(" 4  retry 2 of 5") != std::string::npos);
     }
 
     SUBCASE("--level filters below the bar out")

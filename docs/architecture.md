@@ -170,6 +170,17 @@ its site table per segment. The announce flag beside the descriptor is a
 constant-initialised atomic; the steady-state cost is one relaxed load and a
 predictable branch.
 
+**SubsystemDefinition** -- names one subsystem id, the same "definition
+precedes use" discipline applied to the one axis it used to stop short of
+(`record-model.md`, "The library must not own the vocabulary"). Written by
+`Logger::create()` for names declared in `Options` and by
+`Logger::declareSubsystem()` for one discovered later; control-thread work
+only, never reachable from `detail::emit`. Adding it did not move
+`wire::cFormatVersion`: `Decoder::decodeAll`'s first pass already routes any
+`RecordKind` it does not recognise to `skippedRecords()` rather than
+`undecodableRecords()`, so an older decoder reading a newer segment counts
+these as intact-but-unrecognised, exactly as it already does for `Blob`.
+
 **Continuation** -- a bounded chain for payloads that outgrow one record
 (file paths). Capped; past the cap is truncation, flagged. *(Skeleton in v1:
 the cap and flags are in the format from day one; the writer may truncate

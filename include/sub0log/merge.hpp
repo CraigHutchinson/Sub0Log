@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <span>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -51,6 +52,14 @@ public:
     /// Merger and every image must outlive the result.
     [[nodiscard]] std::vector<MergedRecord> merged() const;
     [[nodiscard]] Totals totals() const noexcept { return totals_; }
+
+    /// The name declared for `subsystem`, searched across every added
+    /// segment in addSegment() order, first declaration wins -- the same
+    /// rule Decoder::subsystemName() applies within one segment, extended
+    /// across the merge so a MergedRecord (which does not itself carry
+    /// which segment it came from) can still be labelled. Empty when no
+    /// added segment ever declared it.
+    [[nodiscard]] std::string_view subsystemName(SubsystemId subsystem) const noexcept;
 
 private:
     // Kept per segment: the Decoder stays alive for the string_views it
@@ -135,6 +144,17 @@ inline std::vector<MergedRecord> Merger::merged() const
     });
 
     return out;
+}
+
+inline std::string_view Merger::subsystemName(const SubsystemId subsystem) const noexcept
+{
+    for (const Loaded& seg : segments_) {
+        const std::string_view name = seg.decoder_.subsystemName(subsystem);
+        if (!name.empty()) {
+            return name;
+        }
+    }
+    return {};
 }
 
 } // namespace sub0log
