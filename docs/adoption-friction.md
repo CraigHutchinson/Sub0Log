@@ -368,15 +368,26 @@ tidied away:
   happen, which is a stronger statement than the finding made and the reason
   it was safe to close rather than soften.
 
-One thing the work found that the list did not. The first attempt at R9.3's
-counter took a *disabled* call site from 0.57 ns to 1.08 -- nearly double
-R1.4's headline number -- and not because counting is expensive: the counter
-is on the branch a disabled site never takes. Inlining it was enough, because
-it turned a branchless compare into a branch around real work. A cold
-out-of-line attribute put the number back to 0.56 with the counter present.
-The lesson generalises past this counter: on a path this short, where the
-cold code *sits* matters as much as whether it runs, and `[[unlikely]]`
-does not say that.
+One thing the work found that the list did not, and it has already needed
+correcting once. R9.3's counter is not free on the *disabled* path even
+though a disabled site never takes its branch: it costs about 0.15 ns,
+0.57 to 0.72 measured over eight runs each, because the branchless compare
+the check used to compile to has to become a real branch for the cold call
+to hang off. That is a good trade -- 0.15 ns for the end of a class of
+failure where records vanish while every counter reports health -- but the
+commit that introduced it claimed the cost was nothing, on a measurement
+taken before the rest of this work reshaped the file.
+
+The correction is worth more than the number. When the cold attribute went
+in, the three measurements were 0.57 with no counter, 1.08 inlined, 0.56 out
+of line: it appeared to recover everything, and justified an isolated
+non-standard attribute under R8.2. Re-measured after the file had been
+reordered, they are 0.57, 0.79 and 0.72 -- the compiler now makes a much
+better job of the inlined form, and the attribute is worth about 0.07 ns.
+It is kept, because that is still a tenth of R1.4's headline number and one
+macro is a cheap way to hold it. But a justification is a measurement of a
+particular state of the code, and a stale one left standing is exactly how
+an extension outlives its reason.
 
 The original observation still holds and is worth keeping at the end,
 because it is the reason to keep doing this: nothing on the list touched the

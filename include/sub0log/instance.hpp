@@ -58,20 +58,27 @@ inline std::atomic<std::uint64_t> sUnboundEmits{0};
 /** Counts one unbound emit and answers enabled()'s check for it. Always
  *  false: there is nothing to emit into, which is the whole point.
  *
- *  Out of line and cold by attribute, and that is not a micro-optimisation
- *  -- it is the difference between this diagnostic being free and it being
- *  the most expensive thing on R1.4's path. Inlined, the counter's load,
- *  compare and atomic add sit in the middle of every threshold check and
- *  cost 1.08 ns per disabled call site against 0.57 ns without them,
- *  because the branchless compare the check used to compile to becomes a
- *  real branch around real work. Moved out of line the number goes back to
- *  0.56 ns: identical, with the counter present.
+ *  Out of line and cold by attribute, because the counter's load, compare
+ *  and atomic add otherwise sit in the middle of every threshold check.
+ *  Measured on the disabled path, eight runs each: 0.57 ns with no counter
+ *  at all, 0.79 ns inlined, 0.72 ns out of line. `[[unlikely]]` alone was
+ *  tried first, since STYLE_GUIDE's rule is to prefer the standard
+ *  spelling -- it is what the call site already carries, and it is what
+ *  produced the 0.79. A branch hint says which way to predict; only
+ *  `noinline` says where to put the code, and no standard attribute says
+ *  that.
  *
- *  `[[unlikely]]` alone was tried first, since it is the standard spelling
- *  and STYLE_GUIDE's rule is to prefer one -- it is what the call site
- *  already carries, and it is what produced the 1.08 ns. The branch hint
- *  says which way to predict; only `noinline` keeps the work out of the
- *  caller, and no standard attribute says that.
+ *  A correction worth leaving in, because it is about how to read a
+ *  justification rather than about this counter. When this attribute was
+ *  added the same three measurements were 0.57, 1.08 and 0.56 -- the
+ *  attribute looked like it recovered everything. It no longer does: the
+ *  file has been reordered since and the compiler now makes a much better
+ *  job of the inlined form, leaving about 0.07 ns between them. The
+ *  extension is kept because 0.07 ns is still a tenth of R1.4's headline
+ *  number and the cost of keeping it is one isolated macro -- but the
+ *  original figure would have justified far more than the current one
+ *  does, and a stale measurement left standing is exactly how an extension
+ *  outlives its reason.
  */
 [[nodiscard]] SUB0LOG_COLD_PATH inline bool countUnboundEmit() noexcept
 {
@@ -114,11 +121,15 @@ inline std::atomic<std::uint64_t> sUnboundEmits{0};
  *  reports its own -- which is exactly the granularity that makes the
  *  duplicated-instance case legible from inside the module suffering it.
  *
- *  Cost: nothing at all when an instance is bound. The counter is reached
- *  only on the branch where there is no Logger, so R1.4's disabled-site
- *  cost is untouched -- 0.62 ns before this existed and after it. Once
- *  saturated, an unbound call site pays one relaxed load of a line nobody
- *  writes any more.
+ *  Cost, stated honestly because an earlier version of this comment did
+ *  not: about 0.15 ns per disabled call site, 0.57 ns to 0.72 ns measured
+ *  over eight runs each. The counter itself is never reached when an
+ *  instance is bound -- it sits on the branch where there is no Logger --
+ *  but the branch has to exist, and the compare it replaced compiled
+ *  branchlessly. That is the whole of the difference, and R9.3 is worth
+ *  it: 0.15 ns buys the end of a class of failure where records vanish
+ *  and every counter reports health. Once saturated, an unbound call site
+ *  pays one relaxed load of a line nobody writes any more.
  */
 [[nodiscard]] inline std::uint64_t unboundEmits() noexcept
 {
