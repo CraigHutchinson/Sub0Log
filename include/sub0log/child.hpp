@@ -210,17 +210,10 @@ private:
 ChildProcess::reserveRecord(Logger& logger, const std::uint32_t payloadBytes,
                             detail::ChunkWriter*& writer) noexcept
 {
-    writer = logger.currentWriter();
-    detail::ChunkWriter::Reservation slot =
-        (writer != nullptr) ? writer->reserve(payloadBytes) : detail::ChunkWriter::Reservation{};
-    if (!slot.valid()) {
-        writer = logger.refillWriter();
-        slot = (writer != nullptr) ? writer->reserve(payloadBytes) : detail::ChunkWriter::Reservation{};
-        if (!slot.valid()) {
-            logger.countDrop();
-        }
-    }
-    return slot;
+    // The shared implementation (instance.hpp). Kept as a member so the
+    // three Child* writers below read the same as they did, but there is
+    // now one copy of the fit-retry-drop rule for the whole library.
+    return detail::reserveRecord(logger, payloadBytes, writer);
 }
 
 inline void ChildProcess::writeChildStart(Logger* const logger, const std::uint64_t childId,
@@ -395,9 +388,18 @@ inline ChildProcess::ExitStatus ChildProcess::wait() noexcept
         return exitStatus_;
     }
 
-    // Capture threads first: they exit at EOF, which the child's death
-    // guarantees once its stdout/stderr fds close -- joining before reaping
-    // can never deadlock on a child that is still writing.
+    // Capture threads first: they exit at EOF, and draining before reaping
+    // is what keeps a dying child's last lines.
+    //
+    // The limit, stated because the earlier comment here claimed this could
+    // never deadlock and that is not true: EOF arrives when the LAST holder
+    // of the pipe's write end closes it, which is not necessarily the child.
+    // A child that backgrounds a grandchild inheriting the pipe
+    // (`sh -c "(sleep 600 &); echo hi"`) leaves the write end open after the
+    // child exits, and this join -- and therefore ~ChildProcess -- waits for
+    // the grandchild. Bounding that needs a deadline on the drain, which
+    // would trade a hang for lost output; until this library has an opinion
+    // on that trade, the behaviour is documented rather than hidden.
     for (std::thread& t : captureThreads_) {
         if (t.joinable()) {
             t.join();

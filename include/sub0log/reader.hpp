@@ -15,6 +15,7 @@
 #include "wire.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
@@ -190,6 +191,16 @@ public:
         return undecodable_;
     }
 
+    /// Committed records this typed layer has no shape for yet -- the child
+    /// kinds, Continuation and Blob. They are intact on the wire and
+    /// readable through SegmentReader::visit; they are simply not Messages.
+    /// Counted rather than passed over in silence, so "my records are
+    /// missing" has an answer (R9.2).
+    [[nodiscard]] std::uint64_t skippedRecords() const noexcept
+    {
+        return skipped_;
+    }
+
     /// Renders one record's text: the site's format string with each "{}"
     /// replaced by the corresponding argument.
     [[nodiscard]] static std::string format(const DecodedRecord& record);
@@ -211,6 +222,7 @@ private:
 
     std::unordered_map<std::uint64_t, DecodedSite> sites_{};
     std::uint64_t undecodable_{0};
+    std::uint64_t skipped_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -338,6 +350,15 @@ SegmentReader::visit(const std::function<void(const RecordView&)>& onRecord)
             }
 
             const std::uint64_t word = wire::loadUnaligned<std::uint64_t>(image_.data() + cursor);
+
+            // The producer release-stores this word after its payload
+            // (chunk.hpp, "commit last"); a reader that does not acquire
+            // may observe the tag while the payload loads it guards are
+            // hoisted above it. That is not theoretical here: the live-tail
+            // path reads a segment a producer is still writing. The fence
+            // pairs with that release and costs nothing per record on x86.
+            std::atomic_thread_fence(std::memory_order_acquire);
+
             if (!wire::RecordHead::isCommitted(word)) {
                 // The zero/non-zero split is the whole distinction: a zero
                 // word is the chunk's unwritten remainder, while a non-zero
@@ -504,6 +525,9 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
     // and never drops silently (R9.2).
     for (const RecordView& v : views) {
         if (v.head_.kind_ != wire::RecordKind::Message) {
+            if (v.head_.kind_ != wire::RecordKind::SiteDefinition) {
+                ++skipped_; // intact, just not a shape this layer decodes
+            }
             continue;
         }
         if (v.payload_.size() < sizeof(wire::MessagePayload)) {

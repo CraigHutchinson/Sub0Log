@@ -47,7 +47,10 @@ public:
                                         const SegmentOptions& options = {}) noexcept;
 
     [[nodiscard]] bool valid() const noexcept { return mapping_.valid(); }
-    [[nodiscard]] PlatformError error() const noexcept { return mapping_.error(); }
+    [[nodiscard]] PlatformError error() const noexcept
+    {
+        return geometryError_ ? geometryError_ : mapping_.error();
+    }
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
     [[nodiscard]] std::uint64_t generation() const noexcept { return generation_; }
 
@@ -57,6 +60,9 @@ public:
 
 private:
     FileMapping mapping_{};
+    /// Set when create() refused the requested geometry; reported by error()
+    /// ahead of the mapping's own, because the mapping was never attempted.
+    PlatformError geometryError_{};
     std::string path_{};
     std::uint64_t generation_{0};
     std::uint32_t chunkBytes_{0};
@@ -94,6 +100,27 @@ private:
     const std::uint32_t headerBytes = wire::cSegmentHeaderBytes;
     const std::uint32_t chunkBytes = options.chunkBytes_;
     const std::uint64_t segmentBytes = options.segmentBytes_;
+
+    // Geometry comes from a caller (Logger::Options::segment_ is public), so
+    // it is validated before anything derives a size from it. Two ways it
+    // can be poisonous, both caught here rather than in the reader:
+    //   - chunkBytes <= sizeof(ChunkHeader) makes the body size underflow
+    //     and hands ChunkWriter a span over most of the address space;
+    //   - a chunk size that is not 8-aligned puts head words at 4-aligned
+    //     addresses, where the atomic_ref the commit protocol depends on is
+    //     undefined (and on strict-alignment targets, a fault).
+    // The reader already refuses such a segment; a producer that can create
+    // one only to have every reader reject it is worse than failing now.
+    constexpr std::uint32_t cMinChunkBytes =
+        static_cast<std::uint32_t>(sizeof(wire::ChunkHeader)) + 2u * wire::cRecordAlign;
+    if (chunkBytes < cMinChunkBytes || (chunkBytes % wire::cRecordAlign) != 0u
+        || (headerBytes % wire::cRecordAlign) != 0u) {
+        result.mapping_ = FileMapping{};
+        result.geometryError_ =
+            PlatformError{0, "Segment::create: chunkBytes must be 8-aligned and larger "
+                             "than a chunk header"};
+        return result;
+    }
     const std::uint32_t chunkCount =
         (segmentBytes > headerBytes && chunkBytes > 0u)
             ? static_cast<std::uint32_t>((segmentBytes - headerBytes) / chunkBytes)

@@ -275,3 +275,59 @@ TEST_CASE("a call site reached under a second Logger is announced into that segm
 
     std::filesystem::remove_all(directory);
 }
+
+
+// Filling a segment must never leave a Message behind whose definition was
+// dropped: such a record is intact on the wire and undecodable forever.
+//
+// The emit path now refuses to mark a site announced when its definition
+// write failed, so the next attempt retries. Worth recording what that fix
+// is and is not: I could not construct a case where the old code actually
+// produced an undecodable record, because the definition's truncated floor
+// (32 + one byte per argument) is never larger than the message that
+// follows it (32 + the argument bytes, each at least one), so a definition
+// that does not fit is always followed by a message that does not either.
+// The fix is therefore defence in depth -- the invariant should not rest on
+// that size coincidence holding as the format grows -- and this test pins
+// the invariant itself rather than a reproduction of the bug.
+TEST_CASE("filling a segment leaves no record without its definition")
+{
+    const auto directoryPath = sub0log::test::freshDirectory("dropdef");
+    const auto directory = directoryPath.string();
+
+    // A segment with exactly one chunk, filled until nothing more fits, so
+    // the definition write is forced to fail.
+    sub0log::Logger::Options options{};
+    options.directory_ = directory;
+    options.segment_.segmentBytes_ = sub0log::wire::cSegmentHeaderBytes + 4096u;
+    options.segment_.chunkBytes_ = 4096u;
+
+    auto logger = sub0log::Logger::create(options);
+    REQUIRE(logger.valid());
+    sub0log::Logger::ScopedBind bind{logger};
+
+    // Fill the segment from one call site.
+    for (int i = 0; i < 4000; ++i) {
+        sub0log_info(cStorage, "filler {}", static_cast<std::uint64_t>(i));
+    }
+    REQUIRE(logger.stats().droppedRecords_ > 0u); // the segment is full
+
+    // A *different*, previously unused call site now cannot write its
+    // definition. Every one of these must be dropped rather than written as
+    // a message the reader cannot interpret.
+    for (int i = 0; i < 5; ++i) {
+        sub0log_warning(cStorage, "never fits {}", static_cast<std::uint64_t>(i));
+    }
+
+    const auto image = sub0log::test::slurp(logger.segmentPath());
+    auto reader = sub0log::SegmentReader::open(image);
+    REQUIRE(reader.valid());
+    sub0log::Decoder decoder;
+    const auto records = decoder.decodeAll(reader);
+    (void)records;
+
+    // The whole point: no record in this segment lacks its definition.
+    CHECK(decoder.undecodableRecords() == 0u);
+
+    std::filesystem::remove_all(directoryPath);
+}

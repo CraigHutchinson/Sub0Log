@@ -45,8 +45,13 @@ namespace sub0log::detail {
 /// to precede every Message written for the site in that segment. A
 /// duplicate under a first-use race is benign -- a reader keeps the first
 /// one it sees.
+/// Returns false when the definition could not be written (the drop is
+/// counted). The caller must NOT then record the generation: doing so
+/// marks the site announced for a segment that never learned it, and every
+/// later Message for that site decodes as undecodable -- silently, which
+/// is the precise failure keying on the generation exists to prevent.
 template <Encodable... Args>
-void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
+[[nodiscard]] bool writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
 {
     constexpr std::size_t cArgCount = sizeof...(Args);
     // Zero-size arrays are not a thing; the loop below never touches the
@@ -67,7 +72,7 @@ void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
         writer = logger.refillWriter();
         if (writer == nullptr) {
             logger.countDrop();
-            return;
+            return false;
         }
         slot = writer->reserve(definitionPayloadBytes(cArgCount, formatLen, fileLen));
         if (!slot.valid()) {
@@ -94,7 +99,7 @@ void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
             slot = writer->reserve(definitionPayloadBytes(cArgCount, formatLen, fileLen));
             if (!slot.valid()) {
                 logger.countDrop();
-                return;
+                return false;
             }
         }
     }
@@ -140,6 +145,7 @@ void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
     if (truncated) {
         logger.countTruncation();
     }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +180,16 @@ void emit(const SiteDescriptor& site, const Args&... args) noexcept
     // that true when a process outlives a Logger.
     const std::uint64_t generation = logger->segmentGeneration();
     if (site.announcedGeneration_.load(std::memory_order_relaxed) != generation) {
-        writeSiteDefinition<Args...>(*logger, site);
+        if (!writeSiteDefinition<Args...>(*logger, site)) {
+            // The definition did not make it, so this segment still does not
+            // know the site. Leaving the generation unrecorded means the next
+            // emit tries again; recording it would strand every later Message
+            // for this site as undecodable. The Message below is dropped too,
+            // because a message whose definition never landed is not worth
+            // the space it would take from records that can be read.
+            logger->countDrop();
+            return;
+        }
         site.announcedGeneration_.store(generation, std::memory_order_relaxed);
     }
 
@@ -182,17 +197,10 @@ void emit(const SiteDescriptor& site, const Args&... args) noexcept
     const std::uint32_t payloadBytes =
         static_cast<std::uint32_t>(sizeof(wire::MessagePayload)) + argsBytes;
 
-    ChunkWriter* writer = logger->currentWriter();
-    ChunkWriter::Reservation slot =
-        (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
-
+    ChunkWriter* writer = nullptr;
+    const ChunkWriter::Reservation slot = reserveRecord(*logger, payloadBytes, writer);
     if (!slot.valid()) {
-        writer = logger->refillWriter();
-        slot = (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
-        if (!slot.valid()) {
-            logger->countDrop();
-            return;
-        }
+        return; // reserveRecord counted the drop.
     }
 
     // A thread with no CorrelationScope active still belongs to whatever

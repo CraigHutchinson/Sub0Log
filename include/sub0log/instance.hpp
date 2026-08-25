@@ -229,4 +229,39 @@ inline void Logger::countTruncation() noexcept
                 truncated_.load(std::memory_order_relaxed)};
 }
 
+namespace detail {
+
+/** The fit-retry-drop reservation, in one place.
+ *
+ *  Every record written anywhere in this library follows the same three
+ *  steps: try this thread's current chunk, claim a fresh one if the record
+ *  does not fit, and count a drop if even a new chunk cannot take it
+ *  (R9.1). It was written out three times -- twice on the emit path, once
+ *  in child capture -- and the copies had already drifted apart on who
+ *  counts the drop, which is exactly how a counter starts lying.
+ *
+ *  On success `writer` names the chunk the reservation belongs to; the
+ *  caller commits through it. On failure the drop is already counted and
+ *  the returned reservation is invalid.
+ */
+[[nodiscard]] inline ChunkWriter::Reservation
+reserveRecord(Logger& logger, const std::uint32_t payloadBytes, ChunkWriter*& writer) noexcept
+{
+    writer = logger.currentWriter();
+    ChunkWriter::Reservation slot =
+        (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
+    if (slot.valid()) {
+        return slot;
+    }
+
+    writer = logger.refillWriter();
+    slot = (writer != nullptr) ? writer->reserve(payloadBytes) : ChunkWriter::Reservation{};
+    if (!slot.valid()) {
+        logger.countDrop();
+    }
+    return slot;
+}
+
+} // namespace detail
+
 } // namespace sub0log

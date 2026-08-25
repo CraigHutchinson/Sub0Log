@@ -37,13 +37,21 @@ template <typename T>
 concept CStringLike = std::same_as<std::decay_t<T>, const char*>
                    || std::same_as<std::decay_t<T>, char*>;
 
+/// Every fixed-size type must have a wire size the decoder agrees on: the
+/// encoder writes fixedWireSize<T>() bytes and the reader consumes
+/// wire::fixedSizeOf(code). `long double` is the type that breaks this --
+/// it maps to F64 but is 16 bytes on x86-64, so it would write 16 and the
+/// reader would take 8, shifting every argument after it in the record.
+/// Refusing it at compile time is the only place that mismatch can be
+/// caught, since the wire has no room to describe it.
 template <typename T>
 concept FixedEncodable = std::same_as<Decayed<T>, bool>
                       || std::same_as<Decayed<T>, char>
                       || (std::integral<Decayed<T>> && sizeof(Decayed<T>) <= 8)
-                      || std::floating_point<Decayed<T>>
+                      || (std::floating_point<Decayed<T>>
+                          && (sizeof(Decayed<T>) == 4 || sizeof(Decayed<T>) == 8))
                       || std::is_enum_v<Decayed<T>>
-                      || std::is_pointer_v<Decayed<T>>;
+                      || (std::is_pointer_v<Decayed<T>> && sizeof(std::uintptr_t) == 8);
 
 /// The full set a call site may pass. Everything else is rejected at compile
 /// time by typeCodeFor's static_assert, which names the two escape hatches.
@@ -131,6 +139,23 @@ template <typename T>
     }
 }
 
+/// Length of a C string, never scanning past the cap. Sizing and encoding
+/// both go through this: two independent scans could disagree (the string
+/// is the caller's and may change between them), and an unbounded strlen on
+/// the emit path costs whatever the caller's buffer happens to be, which
+/// R1 has no interest in paying for bytes that will be truncated anyway.
+[[nodiscard]] inline std::uint32_t boundedLength(const char* const ptr) noexcept
+{
+    if (ptr == nullptr) {
+        return 0u;
+    }
+    std::uint32_t len = 0;
+    while (len < wire::cInlineBytesCap && ptr[len] != '\0') {
+        ++len;
+    }
+    return len;
+}
+
 /// Upper-bound contribution of one argument: the fixed wire size for a fixed
 /// type, or 2 (u16 length) plus its bytes capped at cInlineBytesCap for a
 /// view/string.
@@ -144,16 +169,18 @@ template <typename T>
                                         : static_cast<std::uint32_t>(wire::cInlineBytesCap);
         return 2u + capped;
     } else if constexpr (CStringLike<T>) {
-        const char* const ptr = value;
-        const std::size_t len = (ptr != nullptr) ? std::char_traits<char>::length(ptr) : std::size_t{0};
-        const std::uint32_t capped =
-            len < wire::cInlineBytesCap ? static_cast<std::uint32_t>(len)
-                                        : static_cast<std::uint32_t>(wire::cInlineBytesCap);
-        return 2u + capped;
+        return 2u + boundedLength(value);
     } else {
         return fixedWireSize<T>();
     }
 }
+
+/// The encoder's size and the decoder's size for the same argument must be
+/// identical; this asserts it per type rather than trusting the two tables
+/// to stay in step.
+template <typename T>
+concept WireSizeAgrees =
+    !FixedEncodable<T> || (fixedWireSize<T>() == wire::fixedSizeOf(typeCodeFor<T>()));
 
 template <Encodable... Args>
 [[nodiscard]] constexpr std::uint32_t upperBoundSize(const Args&... args) noexcept
@@ -232,8 +259,7 @@ template <Encodable... Args>
             offset += encodeBytesOne(dst + offset, left, sp.data(), sp.size(), result.truncated_);
         } else if constexpr (CStringLike<T>) {
             const char* const ptr = value;
-            const std::size_t len = (ptr != nullptr) ? std::char_traits<char>::length(ptr) : std::size_t{0};
-            offset += encodeBytesOne(dst + offset, left, ptr, len, result.truncated_);
+            offset += encodeBytesOne(dst + offset, left, ptr, boundedLength(ptr), result.truncated_);
         } else {
             offset += encodeFixedOne(dst + offset, value);
         }
