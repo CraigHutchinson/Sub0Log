@@ -127,6 +127,14 @@ public:
     void countTruncation() noexcept;
     [[nodiscard]] Stats stats() const noexcept;
 
+    /// The generation stamped on this instance's segment. The emit path
+    /// compares a site's last-announced generation against this to decide
+    /// whether this segment has been told what the site means.
+    [[nodiscard]] std::uint64_t segmentGeneration() const noexcept
+    {
+        return segment_.generation();
+    }
+
     [[nodiscard]] const std::string& segmentPath() const noexcept
     {
         return segment_.path();

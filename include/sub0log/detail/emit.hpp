@@ -23,8 +23,10 @@ namespace sub0log::detail {
 }
 
 // ---------------------------------------------------------------------------
-// SiteDefinition: written once per site per process, before that site's
-// first Message (docs/record-model.md, "strict self-description").
+// SiteDefinition: written once per site per *segment*, before that site's
+// first Message in it (docs/record-model.md, "strict self-description").
+// Per segment rather than per process, because a segment that does not
+// carry the definitions for its own records cannot be decoded alone.
 
 /// Bytes needed for a SiteDefinition payload carrying `argCount` type codes
 /// and format/file strings of the given (possibly already-clamped) lengths.
@@ -37,11 +39,12 @@ namespace sub0log::detail {
          + 2u + static_cast<std::uint32_t>(fileLen);
 }
 
-/// Writes site's SiteDefinition record. Only called while site.announced_
-/// is still 0; the caller sets it to 1 (relaxed) after this returns, so the
-/// definition is guaranteed to precede every Message this process writes
-/// for the site (a duplicate under a first-use race is benign -- a reader
-/// keeps the first one it sees).
+/// Writes site's SiteDefinition record. Called only when this segment has
+/// not been told about the site yet; the caller records the segment's
+/// generation (relaxed) after this returns, so the definition is guaranteed
+/// to precede every Message written for the site in that segment. A
+/// duplicate under a first-use race is benign -- a reader keeps the first
+/// one it sees.
 template <Encodable... Args>
 void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
 {
@@ -143,9 +146,10 @@ void writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
 // Message
 
 /** Writes, into the active logger's current chunk:
- *   - the site's SiteDefinition record, iff site.announced_ is 0 (relaxed
- *     load; set to 1 after the definition commits) -- the definition always
- *     precedes the site's first message in the stream;
+ *   - the site's SiteDefinition record, iff this segment has not been told
+ *     about the site yet (one relaxed load and a comparison; the segment's
+ *     generation is recorded after the definition commits) -- a definition
+ *     always precedes the site's first message in that segment;
  *   - the Message record: MessagePayload{site.id(), monotonicNowNs(),
  *     currentCorrelation()} then encodeArgs(args...).
  *
@@ -163,9 +167,15 @@ void emit(const SiteDescriptor& site, const Args&... args) noexcept
         return; // enabled() already gates the macro; defensive only.
     }
 
-    if (site.announced_.load(std::memory_order_relaxed) == 0u) {
+    // Strict self-description is per *segment*: every segment must carry the
+    // definitions for the sites it contains, or its records cannot be
+    // decoded on their own (R4.3, and docs/record-model.md). Comparing the
+    // site's last-announced generation against this segment's is what makes
+    // that true when a process outlives a Logger.
+    const std::uint64_t generation = logger->segmentGeneration();
+    if (site.announcedGeneration_.load(std::memory_order_relaxed) != generation) {
         writeSiteDefinition<Args...>(*logger, site);
-        site.announced_.store(1u, std::memory_order_relaxed);
+        site.announcedGeneration_.store(generation, std::memory_order_relaxed);
     }
 
     const std::uint32_t argsBytes = upperBoundSize(args...);

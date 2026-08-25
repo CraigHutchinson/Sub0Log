@@ -214,3 +214,63 @@ TEST_CASE("two processes, one merged stream, ordered by anchored time (R5)")
     std::filesystem::remove_all(directory);
 }
 #endif // !_WIN32
+
+// A call site is not announced once per process: it is announced once per
+// segment. Two Loggers in one process, one shared logging helper -- the
+// ordinary shape of a test suite binding its own instance per case, or an
+// app that recreates its Logger -- and both segments must decode on their
+// own. Before this was fixed the second segment held a Message whose site
+// had been announced only into the first, so the record was undecodable and
+// silently absent, which R7.1's scoped binding promise cannot survive.
+namespace {
+
+constexpr sub0log::SubsystemId cShared{9};
+
+/// Deliberately a shared helper: one call site reached under both Loggers.
+void logSharedSite(const int step)
+{
+    sub0log_info(cShared, "shared helper step {}", step);
+}
+
+} // namespace
+
+TEST_CASE("a call site reached under a second Logger is announced into that segment too")
+{
+    const auto directory = sub0log::test::freshDirectory("announce");
+
+    std::filesystem::path firstPath;
+    std::filesystem::path secondPath;
+    {
+        auto first = sub0log::Logger::create(
+            {.directory_ = directory.string(), .stem_ = "first"});
+        REQUIRE(first.valid());
+        sub0log::Logger::ScopedBind bind{first};
+        logSharedSite(1);
+        firstPath = first.segmentPath();
+    }
+    {
+        auto second = sub0log::Logger::create(
+            {.directory_ = directory.string(), .stem_ = "second"});
+        REQUIRE(second.valid());
+        sub0log::Logger::ScopedBind bind{second};
+        logSharedSite(2);
+        secondPath = second.segmentPath();
+    }
+
+    // Each segment is decodable entirely on its own.
+    for (const auto& [label, path] : {std::pair{"first", firstPath},
+                                      std::pair{"second", secondPath}}) {
+        CAPTURE(label);
+        const auto image = sub0log::test::slurp(path);
+        auto reader = sub0log::SegmentReader::open(image);
+        REQUIRE(reader.valid());
+        sub0log::Decoder decoder;
+        const auto records = decoder.decodeAll(reader);
+        CHECK(decoder.undecodableRecords() == 0);
+        REQUIRE(records.size() == 1);
+        REQUIRE(records[0].site_ != nullptr);
+        CHECK(records[0].site_->format_ == "shared helper step {}");
+    }
+
+    std::filesystem::remove_all(directory);
+}
