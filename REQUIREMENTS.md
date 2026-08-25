@@ -166,6 +166,17 @@ never silent.
 **R9.2** A failure the library cannot classify must be more visible than one it
 can, never less. Unrecognised conditions carry more evidence forward, not less.
 
+**R9.3** A call site that emits nothing because no instance is reachable from it
+must be discoverable at runtime, by the same kind of mechanism that makes a drop
+discoverable. R9.1 covers what happens once a record has an instance to be
+dropped by; this covers everything that fails before that point, which is
+otherwise indistinguishable from having logged successfully.
+
+*Rules out:* treating an unbound call site as a free no-op. It is a no-op that
+reports success, and the three ways to reach it -- a forked child, a module with
+its own copy of the active-instance pointer, and the window before a process
+binds -- are all invisible without it.
+
 ## Explicitly out of scope
 
 Log rotation policy, network transport, a query language, and any dependency on

@@ -106,6 +106,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R8.3 no producer deps | build: the library target links nothing; doctest/nanobench live in test/bench targets only |
 | R9.1 drops counted | integration "Logger counts drops once a tiny segment is exhausted"; child stats tests; stress `saturate` asserts emitted == decoded + dropped under exhaustion |
 | R9.2 unclassified more visible | unit severity ordering (Unclassified > Error); truncation flags asserted wherever a cap cuts |
+| R9.3 unreachable call site counted | system `binding.test.cpp`: unbound emits counted exactly, a bound instance never moves the counter (threshold-suppressed sites included), and a fork-detached child reports its own losses through its exit status |
 
 The compile-time refusal (R1.2's sharpest edge) is a *negative concept
 assertion*: `static_assert(!detail::Encodable<std::string>)` in

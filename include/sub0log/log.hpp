@@ -30,7 +30,8 @@
  */
 #define SUB0LOG_EMIT(severityValue, subsystemValue, formatText, ...)              \
     do {                                                                          \
-        if (::sub0log::detail::enabled(severityValue)) {                          \
+        if (::sub0log::detail::enabled(                                           \
+                (severityValue), ::sub0log::toSubsystemId(subsystemValue))) {          \
             static constinit ::sub0log::SiteDescriptor sub0logSite_{              \
                 (formatText), __FILE__, __LINE__,                                 \
                 ::sub0log::toSubsystemId(subsystemValue),                         \

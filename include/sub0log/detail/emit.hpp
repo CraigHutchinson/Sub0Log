@@ -16,11 +16,21 @@
 namespace sub0log::detail {
 
 /// The macro's enabled check: one relaxed load of the active instance and
-/// one of its threshold (R1.4). False when nothing is bound.
-[[nodiscard]] inline bool enabled(const Severity severity) noexcept
+/// one of its threshold (R1.4).
+///
+/// Nothing bound is not the same answer as below threshold, even though
+/// both return false here: the first means this call site is emitting into
+/// nowhere and nobody would otherwise learn of it (R9.3), so it is counted
+/// on the way out. The counter is on the null branch only -- a bound
+/// instance never touches it.
+[[nodiscard]] inline bool enabled(const Severity severity,
+                                  const SubsystemId subsystem) noexcept
 {
     Logger* const logger = Logger::active();
-    return logger != nullptr && atLeast(severity, logger->threshold());
+    if (logger == nullptr) [[unlikely]] {
+        return countUnboundEmit();
+    }
+    return atLeast(severity, logger->threshold(subsystem));
 }
 
 // ---------------------------------------------------------------------------
