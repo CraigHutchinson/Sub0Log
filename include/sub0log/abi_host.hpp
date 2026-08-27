@@ -43,23 +43,105 @@
  *  counted (R9.1), never written undecodably (R4.3's forbidding clause,
  *  taken literally).
  *
- *  The table is mutex-guarded rather than lock-free. R1.3's no-lock promise
- *  is about a call site's own uncoordinated claim on *its* chunk; this
- *  table is genuinely shared, cross-plugin, cross-thread state that no C++
- *  call site ever needed, and every call through this table already pays
- *  for an indirect call across a module boundary the compiler cannot
- *  inline through. That cost dwarfs a mutex uncontended, which is the
- *  common case (a plugin announces a site rarely; the table is read once
- *  per emit). Nothing has measured this in a plugin's own hot loop, so if
- *  it turns out to matter, a fixed-size lock-free open-addressed table
- *  (same shape as `cSubsystemLevels`'s bound in instance.hpp) is the next
- *  step, not a rewrite -- but it was not worth building on a guess.
+ *  The table is a fixed-size, lock-free, open-addressed array, not a
+ *  mutex-guarded `std::unordered_map` -- it was the latter first, and
+ *  measuring it in a plugin's own hot loop is what changed that. Two
+ *  independent measurements, same harness shape (200k records/thread, a
+ *  512 MiB segment so nothing drops), same C++ path logged alongside the
+ *  ABI one for a same-machine baseline:
+ *
+ *      reviewer's machine, mutex+map:
+ *        threads=1   abi=88.0 ns/record    cpp=66.7 ns/record
+ *        threads=4   abi=892.4 ns/record   cpp=384.2 ns/record
+ *
+ *      this scratchpad, mutex+map (before) vs. the lock-free table (after),
+ *      median of five runs -- absolute numbers differ from the reviewer's
+ *      (a shared, virtualised sandbox, not dedicated hardware; the C++
+ *      column's own thread=4 number moving is the tell), so the shape is
+ *      the claim, not the nanoseconds:
+ *        threads=1   before: abi=88.5  cpp=79.6    after: abi=67.3  cpp=72.8
+ *        threads=4   before: abi=194.7 cpp=23.5    after: abi=21.4  cpp=46.0
+ *
+ *  Both runs agree on the shape that matters: at one thread the ABI and the
+ *  C++ path are within the boundary's own cost of each other (an indirect
+ *  call the compiler cannot inline through), locked or not. At four threads
+ *  the locked table falls far behind the C++ path it should be tracking;
+ *  the lock-free table tracks it. That four-thread gap was the same
+ *  contention cliff `sUnboundEmits` hit before it went lock-free
+ *  (instance.hpp) -- every plugin emit serialising on one lock, in a
+ *  process that may have several plugins each running their own threads.
+ *
+ *  The replacement (`SiteAnnounceTable` below) is `cSlots` fixed slots of
+ *  two relaxed atomics apiece, indexed by a splitmix64 mix of the site id
+ *  with bounded linear probing (`cProbeLimit`). Every load on the read
+ *  path (`generationFor`, called from every `emit()`) is
+ *  `memory_order_relaxed`, which is sound rather than merely fast: the only
+ *  thing the caller does with the result is one equality compare against
+ *  the current segment generation, and a stale-but-eventually-consistent
+ *  read here has exactly one failure mode -- reading an older generation
+ *  than the one `record()` most recently stored, which makes `emit()`
+ *  treat an actually-announced site as unannounced. That triggers a
+ *  refusal (dropped, counted, R9.1), never an undecodable Message: the
+ *  danger this table exists to prevent is a Message referencing a
+ *  definition the segment never got, and a stale relaxed read can only
+ *  push the answer *more* cautious, never less. There is no ordering
+ *  requirement between this table and the wire write it is remembering
+ *  either -- `writeSiteDefinitionCore` has already committed the
+ *  SiteDefinition record (with its own release store, chunk.hpp) before
+ *  `record()` is ever called, so nothing downstream of the generation
+ *  compare depends on this table's memory order at all.
+ *
+ *  Fixed capacity means a full table (or a probe run that exceeds
+ *  `cProbeLimit`) is a real, if unlikely, outcome: a plugin (or several)
+ *  declaring more distinct call sites than `cSlots` holds. That is not
+ *  silent either -- see `siteTableExhausted()`.
+ *
+ *  **Why this table remembers only a generation, not the whole
+ *  definition.** It would be more robust for `emit()` to re-announce
+ *  automatically after a Logger rebind (R7.1) by caching `define_site`'s
+ *  full arguments -- format, file, line, subsystem, severity, type codes --
+ *  keyed by site id, rather than dropping (counted) until the plugin
+ *  happens to call `define_site` again. That was considered and left out,
+ *  deliberately:
+ *
+ *   - It is genuinely safe to do, which is worth stating precisely rather
+ *     than assuming: `format`/`file`/`argTypeCodes` are pointers into the
+ *     *plugin's* memory (its own string literals and static data), and the
+ *     only thing that can ever trigger a re-announce is the plugin itself
+ *     calling `emit()` again -- which requires it to still be loaded, which
+ *     is exactly the condition under which those pointers are still valid.
+ *     There is no dangling-after-unload hazard here, unlike caching a
+ *     pointer for later use by someone *else*.
+ *   - But it does not fit this table's shape without giving up the
+ *     property that makes it lock-free. Two atomics per slot admits one
+ *     relaxed compare on the read path with no ordering to reason about
+ *     beyond "the generation might be stale, and stale only means
+ *     over-cautious" (above). A cached format/file/type-codes tail is
+ *     plain data, written by `define_site` and read by a concurrent
+ *     `emit()` on another thread -- that is a data race unless every field
+ *     is synchronised, which is either a second lock (defeating the point
+ *     of this change) or a materially more intricate lock-free record than
+ *     "two integers, CAS the first".
+ *   - The contract this leaves behind is asymmetric with the C++ path (a
+ *     `SiteDescriptor` re-announces itself silently on every rebind; a
+ *     plugin site does not) but it is not a silent one: a dropped Message
+ *     is counted (R9.1), and the fix is one call the plugin already knows
+ *     how to make. A host that rebinds its Logger while plugins are loaded
+ *     and wants their sites to survive it can call back into each plugin's
+ *     own re-init entry point (exactly the shape `abi_test_plugin.cpp` /
+ *     `abi.test.cpp` already use to hand a plugin the table in the first
+ *     place) and have it call `define_site` again -- the table pointer
+ *     itself does not change across a rebind (`gHostAbiTable` is
+ *     `constexpr`), only the definitions need repeating. A future ABI
+ *     version could add a rebind notification to make this automatic
+ *     (`sub0log_abi.h` is `size`-versioned exactly so it can grow); v1
+ *     does not have one, and drop-and-count is the honest contract for the
+ *     table v1 actually has.
  *
  *  **Everything below is noexcept and never lets an exception cross the
- *  boundary** (R4.2): the one place that could throw --
- *  `std::unordered_map::operator[]`'s allocation -- is caught and treated
- *  as the write it followed already being uncounted-for, which the next
- *  emit() answers safely (drop, counted) rather than by propagating.
+ *  boundary** (R4.2). That is easier to see now than it was with the
+ *  locked map: nothing in `SiteAnnounceTable` allocates or throws, so there
+ *  is no swallowed-exception path left to reason about at all.
  */
 
 #include "detail/emit.hpp"
@@ -68,54 +150,141 @@
 #include "sub0log_abi.h"
 #include "wire.hpp"
 
+#include <array>
+#include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <mutex>
 #include <span>
 #include <string_view>
-#include <unordered_map>
 
 namespace sub0log::abi {
 
 namespace detail {
 
+/// Counts every time SiteAnnounceTable could not resolve or record a
+/// plugin site id within its probe bound. Distinct from Logger::countDrop()
+/// on purpose: a define_site collision has not lost a wire record (the
+/// SiteDefinition was already written by writeSiteDefinitionCore before
+/// record() is ever called) -- it has lost the host's *memory* that it did,
+/// which only costs a record once some later emit() for the same site finds
+/// itself "unannounced" and is dropped (and counted, separately, through
+/// the ordinary per-segment path). This counter is what tells an operator
+/// *why*: too many distinct plugin call sites for the table, not a full
+/// segment. See siteTableExhausted() for the public reader.
+inline std::atomic<std::uint64_t> sSiteTableExhausted{0};
+
 /// Tracks, per plugin site id, the segment generation the host last
-/// confirmed writing that site's SiteDefinition into. See the file comment
-/// above for why this exists and why it is locked rather than lock-free.
+/// confirmed writing that site's SiteDefinition into. Fixed-size and
+/// lock-free -- see the file comment above for the measurement that
+/// replaced the mutex-guarded map this used to be, and for why every load
+/// on the read path is safely relaxed.
 class SiteAnnounceTable {
 public:
-    /// 0 (never a valid segment generation in practice -- randomGeneration()
-    /// draws from the full 64-bit space, the same assumption SiteDescriptor's
-    /// own default of 0 already relies on in site.hpp) when siteId has never
-    /// been recorded.
+    /// Power of two so `hash & (cSlots - 1)` is a mask, not a modulo. 4096
+    /// slots costs 64 KiB (two 8-byte atomics per slot) -- generous for how
+    /// many distinct call sites one plugin process declares, bounded rather
+    /// than unbounded because this table lives on emit()'s path and must
+    /// not allocate (R1.2) or grow.
+    static constexpr std::size_t cSlots = 4096u;
+    static_assert((cSlots & (cSlots - 1u)) == 0u, "cSlots must be a power of two");
+
+    /// How many slots generationFor()/record() probe past a site's ideal
+    /// slot before giving up and counting the table exhausted, rather than
+    /// walking the whole array on every emit() once it is even lightly
+    /// loaded. Bounds both functions at O(cProbeLimit) regardless of how
+    /// full the table is -- the same trade cSubsystemLevels makes in
+    /// instance.hpp (a fixed table over an unbounded one, because the read
+    /// side must stay cheap).
+    static constexpr std::size_t cProbeLimit = 32u;
+
+    /// A site id of 0 is never produced by a real call site (site ids are
+    /// addresses of static objects -- see sub0log_abi.h's own comment on
+    /// Sub0LogAbiRecord::site_id -- and an address is never null), so 0 is
+    /// free to mean "this slot has never been claimed", the same trade
+    /// site.hpp's announcedGeneration_ already makes for generation 0.
+
+    /// The generation last recorded for siteId, or 0 when siteId has never
+    /// been recorded -- including when the probe bound was exhausted
+    /// without finding it (counted; see detail::sSiteTableExhausted).
+    ///
+    /// Every load here is relaxed, and that is deliberate rather than
+    /// convenient: see the file comment above for why a stale read has no
+    /// path to an undecodable Message, only to an unnecessary re-announce.
     [[nodiscard]] std::uint64_t generationFor(const std::uint64_t siteId) const noexcept
     {
-        const std::lock_guard<std::mutex> lock{mutex_};
-        const auto it = generations_.find(siteId);
-        return it != generations_.end() ? it->second : 0u;
+        std::size_t slot = probeStart(siteId);
+        for (std::size_t i = 0; i < cProbeLimit; ++i) {
+            const std::uint64_t key = slots_[slot].siteId_.load(std::memory_order_relaxed);
+            if (key == siteId) {
+                return slots_[slot].generation_.load(std::memory_order_relaxed);
+            }
+            if (key == 0u) {
+                return 0u; // empty slot inside the probe bound: genuinely never announced.
+            }
+            slot = nextSlot(slot);
+        }
+        sSiteTableExhausted.fetch_add(1u, std::memory_order_relaxed);
+        return 0u; // undetermined within the bound; "not announced" is the safe answer.
     }
 
-    /// Records that this segment (identified by its generation) now carries
-    /// siteId's SiteDefinition. Swallows an allocation failure as a no-op:
-    /// the record itself has already been written by the caller
-    /// (defineSite), so the only consequence of losing the bookkeeping is
-    /// that the next emit() for this site is refused and counted as a drop
-    /// rather than trusted -- the safe direction to fail in, and the same
-    /// direction every other failure on this path already fails in.
+    /// Claims (or finds) siteId's slot and records generation, relaxed
+    /// throughout: the only synchronisation this table owes a reader is
+    /// the generation compare in emit(), and that compare tolerates a
+    /// stale read by construction (file comment above).
+    ///
+    /// A claim that cannot find a slot within the probe bound does not
+    /// call Logger::countDrop() itself: the SiteDefinition this claim would
+    /// remember has already been written to the wire by the caller
+    /// (defineSite). What is lost is only the host's memory of that fact --
+    /// which costs a record the next time emit() for this site finds
+    /// itself "unannounced" and is dropped through the ordinary path.
+    /// There is no way to un-claim a slot to make room, so a plugin whose
+    /// distinct site count exceeds cSlots sees every one of its excess
+    /// sites' Messages dropped for the life of the process -- a real,
+    /// documented limit (siteTableExhausted()), not a silent one.
     void record(const std::uint64_t siteId, const std::uint64_t generation) noexcept
     {
-        try {
-            const std::lock_guard<std::mutex> lock{mutex_};
-            generations_[siteId] = generation;
-        } catch (...) {
-            // See the doc comment above: this function must not let an
-            // exception cross back into a noexcept ABI entry point.
+        std::size_t slot = probeStart(siteId);
+        for (std::size_t i = 0; i < cProbeLimit; ++i) {
+            std::uint64_t expected = 0u;
+            const bool claimed = slots_[slot].siteId_.compare_exchange_strong(
+                expected, siteId, std::memory_order_relaxed, std::memory_order_relaxed);
+            if (claimed || expected == siteId) {
+                slots_[slot].generation_.store(generation, std::memory_order_relaxed);
+                return;
+            }
+            slot = nextSlot(slot);
         }
+        sSiteTableExhausted.fetch_add(1u, std::memory_order_relaxed);
     }
 
 private:
-    mutable std::mutex mutex_;
-    std::unordered_map<std::uint64_t, std::uint64_t> generations_;
+    struct Slot {
+        std::atomic<std::uint64_t> siteId_{0};
+        std::atomic<std::uint64_t> generation_{0};
+    };
+
+    /// splitmix64's mixing step over siteId. Two call sites at nearby
+    /// addresses -- the ordinary case for static objects declared next to
+    /// each other in one plugin translation unit -- must not land in
+    /// adjacent slots, or the second site a small plugin declares walks
+    /// straight into cProbeLimit.
+    [[nodiscard]] static std::size_t probeStart(const std::uint64_t siteId) noexcept
+    {
+        std::uint64_t x = siteId + 0x9E3779B97F4A7C15ull;
+        x = (x ^ (x >> 30u)) * 0xBF58476D1CE4E5B9ull;
+        x = (x ^ (x >> 27u)) * 0x94D049BB133111EBull;
+        x ^= x >> 31u;
+        return static_cast<std::size_t>(x) & (cSlots - 1u);
+    }
+
+    [[nodiscard]] static std::size_t nextSlot(const std::size_t slot) noexcept
+    {
+        return (slot + 1u) & (cSlots - 1u);
+    }
+
+    std::array<Slot, cSlots> slots_{};
 };
 
 /// One table, shared by every plugin this host loads -- module-scoped like
@@ -128,6 +297,16 @@ private:
 }
 
 } // namespace detail
+
+/// How many times SiteAnnounceTable could not claim or find a slot within
+/// its probe bound (detail::sSiteTableExhausted) -- too many distinct
+/// plugin call sites for the fixed table, not a full segment. Module-scoped
+/// like sub0log::unboundEmits(), for the same reason: the table is shared
+/// by every plugin the host loads, not owned by any one Logger.
+[[nodiscard]] inline std::uint64_t siteTableExhausted() noexcept
+{
+    return detail::sSiteTableExhausted.load(std::memory_order_relaxed);
+}
 
 // ---------------------------------------------------------------------------
 // The table's three functions. extern "C" (not just callable from C): the
