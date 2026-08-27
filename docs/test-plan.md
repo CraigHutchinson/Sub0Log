@@ -91,7 +91,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R3.2 no flush path needed | same test: no shutdown code runs in the child |
 | R3.3 truncated tail tolerated + counted | integration reader tests: uncommitted, torn, oversized-length, each with exact unreadable-byte counts |
 | R3.4 generation vs stale data | integration "a chunk from a stale generation is skipped and its body counted"; unit wire tests pin the header layout |
-| R4 plugin ABI | **gap** -- `sub0log_abi.h` ships; the dlopen round-trip test is v2 (named in architecture phasing) |
+| R4 plugin ABI | `sub0log_abi.h` ships; the host-side implementation is `abi_host.hpp`. System `abi.test.cpp`: a plugin built `-fvisibility=hidden`, linking nothing of ours, `dlopen()`ed, handed the table, logs, `dlclose()`ed -- then decoded, proving R4.1 (no duplicated-instance failure) and R4.3 (decodable after unload) together. POSIX only; the Windows arm (`LoadLibraryW`/`GetProcAddress`/`FreeLibrary`) is written and compiled but CI-unverified, the same status as the rest of the v2 Windows work below |
 | R5.1 one segment per process | construction; system two-process test proves no shared write state exists to corrupt |
 | R5.2 merge at read | integration merge tests (alignment, tie-breaks, totals); system `tool.test.cpp` merges two processes' segments through the shipped `sub0log-cat` |
 | tooling | system `tool.test.cpp` drives the real `sub0log-cat` binary: rendering, `--level`/`--subsystem` field filters, `--stats`, a bad path, declared subsystem names, and `--follow` picking up a record written after the tailer had already printed its first pass (POSIX: fork/exec/SIGTERM) |
@@ -148,7 +148,6 @@ numbers, and a noisy gate is one people learn to ignore.
 
 ## Known gaps, in one place
 
-- R4 dlopen ABI round-trip (v2).
 - Windows runs 41 of the 53 tests (see "What runs where"); the 12 it does
   not run are the POSIX-only `system` tests, which need the v2 Windows arms
   for process spawning and child capture. Three of the eight examples are

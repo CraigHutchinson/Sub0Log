@@ -211,7 +211,7 @@ learn about this, and control-thread work costs a record nothing. The format
 version did not move: an older decoder counts kind 8 as skipped rather than
 as damage, and a test pins that instead of a comment claiming it.
 
-### 2.3 A plugin's call sites silently log nothing -- **Bug (R4.1); made loud, not yet fixed**
+### 2.3 A plugin's call sites silently log nothing -- **Bug (R4.1); fixed**
 
 The probe: one `.so` with a call site inside it, one host that creates and
 binds a `Logger`, both built the same way, run twice.
@@ -236,14 +236,23 @@ before v2: the R9.3 counter above, so the silence ends; and a documented
 statement that a plugin must reach the host through the C ABI rather than by
 including the header, so nobody discovers this in production.
 
-**Half shipped, and it is the half that stops the silence.** R9.3 and
-`sub0log::unboundEmits()` now exist. Re-running the same probe, the plugin's
-own module reports one unbound emit while the host reports zero --
-module-scoped by necessity, since a plugin that cannot see the host's
-instance cannot see its counter either, which is exactly the granularity
-that makes the case legible from inside the module suffering it. The
-duplicated instance itself is unchanged: R4's C ABI is still the fix and
-still v2.
+**Shipped in two steps, and both are done now.** R9.3 and
+`sub0log::unboundEmits()` landed first and are what stopped the silence:
+re-running the same probe, the plugin's own module reports one unbound emit
+while the host reports zero -- module-scoped by necessity, since a plugin
+that cannot see the host's instance cannot see its counter either, which is
+exactly the granularity that makes the case legible from inside the module
+suffering it.
+
+The duplicated instance itself is fixed by `abi_host.hpp`, the host-side
+implementation of `sub0log_abi.h`'s function table: a plugin's call sites go
+through `define_site`/`emit`, function pointers the host hands over, running
+*in the host's module* where `Logger::active()` is the real one -- there is
+no second `sActive_` to be silently separate from. Re-running the 2.3 probe
+through the ABI instead of the header-only path (`tests/system/abi.test.cpp`,
+same `-fvisibility=hidden` plugin build) now decodes both of the plugin's
+records plus the host's own, with the plugin's module `dlclose()`ed before
+decoding even starts.
 
 ## 3. First month: running it in a service
 
@@ -391,10 +400,9 @@ worth recording so nobody re-derives them:
 
 ## What this changed
 
-Everything above except one item, worked in the order the list was ranked
-in. The exception is the plugin's duplicated instance (2.3), where the
-silence was ended and the cause was not: R4's C ABI is the fix and is
-scheduled for v2.
+Everything above, worked in the order the list was ranked in. Item 2.3 took
+two passes: the silence was ended first (R9.3), and the cause -- the
+duplicated instance itself -- second, once R4's C ABI existed to fix it.
 
 Two claims made when the list was written turned out to be worth revising
 once the work was done, and both are corrected in place above rather than

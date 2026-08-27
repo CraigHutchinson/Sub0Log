@@ -304,12 +304,37 @@ it and comes later -- this answers the third open question in
 ## The C ABI (R4)
 
 `sub0log_abi.h` is C, dependency-free, and carries a versioned function table
-(`Sub0LogAbiV1`: acquire-record / commit-record / current-correlation) that a
-host exports to its plugins with one exported symbol. A plugin compiles the
-header only; it never links the library (R4.1), and nothing crossing the
-boundary owns memory or runs C++ (R4.2). The table is `size`-versioned so it
-can grow without breaking old plugins. v1 ships the header and the host-side
-shim; exercising it with a real dlopen'd plugin is a phase-2 test.
+(`Sub0LogAbiV1`: `define_site` / `emit` / `current_correlation`) that a host
+exports to its plugins with one exported symbol
+(`SUB0LOG_ABI_GETTER_NAME`, `sub0log_abi_v1`). A plugin compiles the header
+only; it never links the library (R4.1), and nothing crossing the boundary
+owns memory or runs C++ (R4.2). The table is `size`-versioned so it can grow
+without breaking old plugins.
+
+`abi_host.hpp` is the host-side implementation, over the same producer path
+`detail::emit` uses: `define_site` writes a SiteDefinition through
+`detail::writeSiteDefinitionCore` (the non-template core `writeSiteDefinition`
+now also calls, so the two paths share one record layout rather than two);
+`emit` writes a Message from the plugin's pre-encoded payload through
+`detail::reserveRecord`, stamping time and correlation the same way
+`detail::emit` does. A plugin's call site has no SiteDescriptor to hang
+`announcedGeneration_` off (site.hpp), so the host tracks, in a table keyed
+on the plugin's site id, which segment generation last received that site's
+definition; `emit` refuses (and counts, R9.1) a Message for a site this
+segment was never told about, rather than trust the plugin re-announced in
+time -- the same failure the generation keying already forbids for the C++
+path, extended across the boundary. `SUB0LOG_ABI_HOST_EXPORT()` is the macro
+a host writes once, in one translation unit, to define and export
+`sub0log_abi_v1` with default visibility; the exported getter returns NULL
+with no Logger bound, as documented in the header.
+
+`tests/system/abi.test.cpp` is the round trip: a plugin
+(`tests/system/plugin/abi_test_plugin.cpp`) built `-fvisibility=hidden` --
+docs/adoption-friction.md 2.3's exact configuration -- including only
+`sub0log_abi.h` and linking nothing of the library, `dlopen()`ed, handed the
+table, logs, `dlclose()`ed, and only then decoded: R4.1 (no duplicated
+instance) and R4.3 (decodable after unload) both pinned against a real
+loader rather than argued.
 
 ## Dependencies and build
 
@@ -328,8 +353,11 @@ gates all of it, so a consumer embedding the library via
 - **v1 stretch**: child capture and interception (R5.5/R5.6) -- format and
   API are in v1 (`child.hpp`, the three Child* payloads); the POSIX
   implementation lands as this branch's stretch goal.
-- **v2**: continuation chains, blob channel, the dlopen ABI test, Windows CI
-  (including the Windows child-capture path).
+- **v2**: continuation chains, blob channel, Windows CI (including the
+  Windows child-capture path). The dlopen ABI round trip shipped ahead of
+  the rest of v2 (`abi_host.hpp`, `tests/system/abi.test.cpp`) since R4 was
+  this phase's named flagship item; its Windows arm is written but, like the
+  rest of v2's Windows work, CI-unverified.
 - **v3**: segment rollover, CLI.
 - **vNext**: a front-end/backend split at the chunk-source seam.
   `vnext-frontend-backend.md` fixes where that seam may go and why the

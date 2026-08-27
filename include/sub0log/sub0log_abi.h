@@ -11,8 +11,9 @@
  * field, so the table can grow without breaking old plugins. Function order
  * is append-only forever.
  *
- * v1 ships the header and the host-side shim (sub0log/abi_host.hpp, phase 2);
- * the dlopen round-trip test is phase 2.
+ * The host-side implementation is sub0log/abi_host.hpp; sub0log/detail
+ * (headers that stay C++) never appears here. The dlopen round trip is
+ * tests/system/abi.test.cpp.
  */
 
 #include <stddef.h>

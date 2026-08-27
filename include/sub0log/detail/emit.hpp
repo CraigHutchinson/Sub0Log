@@ -11,7 +11,10 @@
 #include "../site.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <span>
+#include <string_view>
 
 namespace sub0log::detail {
 
@@ -50,33 +53,52 @@ namespace sub0log::detail {
          + 2u + static_cast<std::uint32_t>(fileLen);
 }
 
-/// Writes site's SiteDefinition record. Called only when this segment has
-/// not been told about the site yet; the caller records the segment's
-/// generation (relaxed) after this returns, so the definition is guaranteed
-/// to precede every Message written for the site in that segment. A
-/// duplicate under a first-use race is benign -- a reader keeps the first
-/// one it sees.
-/// Returns false when the definition could not be written (the drop is
-/// counted). The caller must NOT then record the generation: doing so
-/// marks the site announced for a segment that never learned it, and every
-/// later Message for that site decodes as undecodable -- silently, which
-/// is the precise failure keying on the generation exists to prevent.
-template <Encodable... Args>
-[[nodiscard]] bool writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
+/** The non-template core of a SiteDefinition write: siteId, subsystem,
+ *  severity, the two strings, and the wire bytes for the argument type
+ *  codes -- every field the record carries, addressed by value rather than
+ *  read off a SiteDescriptor.
+ *
+ *  Two callers share this rather than two copies of the record layout: the
+ *  template below derives `typeCodes` from a pack of C++ types and reads
+ *  everything else off a SiteDescriptor; abi_host.hpp's `define_site` has
+ *  neither of those -- a plugin call site is described entirely by the
+ *  arguments the C ABI carries -- so it calls this directly with the bytes
+ *  the plugin already supplied. `typeCodes` is `uint8_t` rather than
+ *  `wire::TypeCode` for the same reason: the ABI hands over a `const
+ *  uint8_t*` whose bytes were never constructed as `wire::TypeCode` objects,
+ *  and reading them through a reinterpret_cast to the enum type would be
+ *  exactly the aliasing violation `wire::loadUnaligned` exists to avoid
+ *  elsewhere in this codebase -- so the shared core takes what both callers
+ *  can honestly provide, and interpretation as TypeCode stays the reader's
+ *  job, same as it already is for every other byte on the wire.
+ *
+ *  Called only when this segment has not been told about the site yet; the
+ *  caller records the segment's generation (relaxed, or in the ABI's case,
+ *  in its own site table -- see abi_host.hpp) after this returns, so the
+ *  definition is guaranteed to precede every Message written for the site
+ *  in that segment. A duplicate under a first-use race is benign -- a
+ *  reader keeps the first one it sees.
+ *  Returns false when the definition could not be written (the drop is
+ *  counted). The caller must NOT then record the generation: doing so
+ *  marks the site announced for a segment that never learned it, and every
+ *  later Message for that site decodes as undecodable -- silently, which
+ *  is the precise failure keying on the generation exists to prevent.
+ */
+[[nodiscard]] inline bool writeSiteDefinitionCore(Logger& logger, std::uint64_t siteId,
+                                                  SubsystemId subsystem, Severity severity,
+                                                  std::string_view format, std::string_view file,
+                                                  std::uint32_t line,
+                                                  std::span<const std::uint8_t> typeCodes) noexcept
 {
-    constexpr std::size_t cArgCount = sizeof...(Args);
-    // Zero-size arrays are not a thing; the loop below never touches the
-    // padding slot when cArgCount is 0.
-    const wire::TypeCode typeCodes[cArgCount == 0 ? 1 : cArgCount] = {typeCodeFor<Args>()...};
-
-    std::size_t formatLen = site.format_.size();
-    std::size_t fileLen = site.file_.size();
+    const auto argCount = static_cast<std::uint32_t>(typeCodes.size());
+    std::size_t formatLen = format.size();
+    std::size_t fileLen = file.size();
     bool truncated = false;
 
     ChunkWriter* writer = logger.currentWriter();
     ChunkWriter::Reservation slot =
         (writer != nullptr)
-            ? writer->reserve(definitionPayloadBytes(cArgCount, formatLen, fileLen))
+            ? writer->reserve(definitionPayloadBytes(argCount, formatLen, fileLen))
             : ChunkWriter::Reservation{};
 
     if (!slot.valid()) {
@@ -85,7 +107,7 @@ template <Encodable... Args>
             logger.countDrop();
             return false;
         }
-        slot = writer->reserve(definitionPayloadBytes(cArgCount, formatLen, fileLen));
+        slot = writer->reserve(definitionPayloadBytes(argCount, formatLen, fileLen));
         if (!slot.valid()) {
             // Doesn't fit even a brand-new, empty chunk: truncate the two
             // strings so it does, rather than dropping the definition
@@ -103,7 +125,7 @@ template <Encodable... Args>
                 std::min(writer->remaining(), cMaxPayload);
             const std::uint32_t fixedBytes =
                 static_cast<std::uint32_t>(sizeof(wire::SiteDefinitionPayload))
-                + static_cast<std::uint32_t>(cArgCount) + 4u /* two u16 lengths */ + 8u /* head word */;
+                + argCount + 4u /* two u16 lengths */ + 8u /* head word */;
             const std::uint32_t available = emptyCapacity > fixedBytes ? emptyCapacity - fixedBytes : 0u;
             const std::uint32_t formatCap = available / 2u;
             const std::uint32_t fileCap = available - formatCap;
@@ -115,7 +137,7 @@ template <Encodable... Args>
                 fileLen = fileCap;
                 truncated = true;
             }
-            slot = writer->reserve(definitionPayloadBytes(cArgCount, formatLen, fileLen));
+            slot = writer->reserve(definitionPayloadBytes(argCount, formatLen, fileLen));
             if (!slot.valid()) {
                 logger.countDrop();
                 return false;
@@ -126,32 +148,32 @@ template <Encodable... Args>
     std::byte* p = slot.payload_;
 
     wire::SiteDefinitionPayload defPayload{};
-    defPayload.siteId_ = site.id();
-    defPayload.subsystemId_ = site.subsystem_.value_;
-    defPayload.line_ = site.line_;
-    defPayload.severity_ = static_cast<std::uint8_t>(site.severity_);
-    defPayload.argCount_ = static_cast<std::uint8_t>(cArgCount);
+    defPayload.siteId_ = siteId;
+    defPayload.subsystemId_ = subsystem.value_;
+    defPayload.line_ = line;
+    defPayload.severity_ = static_cast<std::uint8_t>(severity);
+    defPayload.argCount_ = static_cast<std::uint8_t>(argCount);
     defPayload.reserved0_ = 0u;
     defPayload.reserved1_ = 0u;
     wire::storeUnaligned(p, defPayload);
     p += sizeof(wire::SiteDefinitionPayload);
 
-    for (std::size_t i = 0; i < cArgCount; ++i) {
-        wire::storeUnaligned(p, static_cast<std::uint8_t>(typeCodes[i]));
+    for (std::size_t i = 0; i < typeCodes.size(); ++i) {
+        wire::storeUnaligned(p, typeCodes[i]);
         p += 1;
     }
 
     wire::storeUnaligned(p, static_cast<std::uint16_t>(formatLen));
     p += 2;
     if (formatLen > 0u) {
-        std::memcpy(p, site.format_.data(), formatLen);
+        std::memcpy(p, format.data(), formatLen);
     }
     p += formatLen;
 
     wire::storeUnaligned(p, static_cast<std::uint16_t>(fileLen));
     p += 2;
     if (fileLen > 0u) {
-        std::memcpy(p, site.file_.data(), fileLen);
+        std::memcpy(p, file.data(), fileLen);
     }
     p += fileLen;
 
@@ -165,6 +187,25 @@ template <Encodable... Args>
         logger.countTruncation();
     }
     return true;
+}
+
+/// Writes site's SiteDefinition record by deriving the wire type codes from
+/// the template pack and reading everything else off the SiteDescriptor;
+/// see writeSiteDefinitionCore for the shared layout and the full contract
+/// (when this may be called, and what the caller must and must not do with
+/// its result).
+template <Encodable... Args>
+[[nodiscard]] bool writeSiteDefinition(Logger& logger, const SiteDescriptor& site) noexcept
+{
+    constexpr std::size_t cArgCount = sizeof...(Args);
+    // Zero-size arrays are not a thing; writeSiteDefinitionCore never reads
+    // the padding slot when cArgCount is 0 (its span length is 0).
+    const std::uint8_t typeCodes[cArgCount == 0 ? 1 : cArgCount] = {
+        static_cast<std::uint8_t>(typeCodeFor<Args>())...};
+
+    return writeSiteDefinitionCore(logger, site.id(), site.subsystem_, site.severity_,
+                                   site.format_, site.file_, site.line_,
+                                   std::span<const std::uint8_t>{typeCodes, cArgCount});
 }
 
 // ---------------------------------------------------------------------------
