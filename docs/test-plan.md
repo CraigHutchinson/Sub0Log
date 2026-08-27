@@ -93,7 +93,8 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R3.4 generation vs stale data | integration "a chunk from a stale generation is skipped and its body counted"; unit wire tests pin the header layout |
 | R4 plugin ABI | **gap** -- `sub0log_abi.h` ships; the dlopen round-trip test is v2 (named in architecture phasing) |
 | R5.1 one segment per process | construction; system two-process test proves no shared write state exists to corrupt |
-| R5.2 merge at read | integration merge tests (alignment, tie-breaks, totals) |
+| R5.2 merge at read | integration merge tests (alignment, tie-breaks, totals); system `tool.test.cpp` merges two processes' segments through the shipped `sub0log-cat` |
+| tooling | system `tool.test.cpp` drives the real `sub0log-cat` binary: rendering, `--level`/`--subsystem` field filters, `--stats`, a bad path, declared subsystem names, and `--follow` picking up a record written after the tailer had already printed its first pass (POSIX: fork/exec/SIGTERM) |
 | R5.3 comparable clocks | integration "segments with different anchor pairs merge into aligned global order" -- epochs deliberately unrelated |
 | R5.4 correlation into children | system "SUB0LOG_CORRELATION propagates into the child's environment"; "with no scope active, records carry the environment's root correlation"; unit env parsing |
 | R5.5 non-cooperating child captured | system child tests: streams, exit codes, signals, caps, no-logger |
@@ -103,6 +104,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R7.2 no test-only branches | discipline + review; nothing in `include/` references a test macro |
 | R8.1 three platforms | CI matrix, all eight jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 53/53, Windows/MSVC 41/41, plus the `examples` and `stress-quick` gates (see "What runs where") |
 | R8.2 C++23, no extensions | `CXX_EXTENSIONS OFF` everywhere; CI compilers enforce. One isolated exception, `SUB0LOG_COLD_PATH` (instance.hpp): no standard attribute says "keep this out of the caller", `[[unlikely]]` was tried and measured insufficient, and the comment carries both numbers |
+| R8.1 non-ASCII paths | system `paths.test.cpp`: a real segment created under a `café-日本語` directory, written and decoded, on every platform -- the end-to-end half of the CreateFileW fix, whose unit test only covers the conversion in isolation. Its neighbour asserts an unusable directory produces an invalid Logger that counts drops rather than pretending (R9.2) |
 | R8.1 installable | `packaging::find_package` installs to a throwaway prefix and builds an out-of-tree consumer against nothing else, on Ubuntu and Windows; the consumer sets no standard of its own, so C++23 and `/Zc:preprocessor` have to arrive as usage requirements or it fails |
 | R8.3 no producer deps | build: the library target links nothing; doctest/nanobench live in test/bench targets only |
 | R9.1 drops counted | integration "Logger counts drops once a tiny segment is exhausted"; child stats tests; stress `saturate` asserts emitted == decoded + dropped under exhaustion |

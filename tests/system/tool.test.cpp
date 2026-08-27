@@ -13,6 +13,7 @@
 #include "support/test_framework.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -20,7 +21,15 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
+
+#ifndef _WIN32
+#  include <csignal>
+#  include <fcntl.h>
+#  include <sys/wait.h>
+#  include <unistd.h>
+#endif
 
 #if defined(SUB0LOG_CAT_PATH)
 
@@ -151,5 +160,121 @@ TEST_CASE("sub0log-cat says so rather than exiting quietly on a bad path")
 
     std::filesystem::remove_all(directory);
 }
+
+
+#ifndef _WIN32
+namespace {
+
+/// Reads `path` (which may not exist yet) and returns its contents.
+[[nodiscard]] std::string readAll(const std::filesystem::path& path)
+{
+    std::ifstream in{path};
+    if (!in) {
+        return {};
+    }
+    return std::string{std::istreambuf_iterator<char>{in},
+                       std::istreambuf_iterator<char>{}};
+}
+
+/** Waits until `path` contains `needle`, or the tailer dies, or time runs
+ *  out. Returns the contents seen last.
+ *
+ *  Polling rather than sleeping a fixed amount, and that is the difference
+ *  between this test and a flaky one: the first version slept 600 ms on
+ *  each side and failed roughly one run in two on a loaded machine. A fixed
+ *  wait encodes a guess about a shared runner's speed, where what the test
+ *  actually needs is the *ordering* -- that the tailer has printed its
+ *  first pass before the second record is written -- which only waiting for
+ *  the evidence can establish.
+ */
+[[nodiscard]] std::string waitForSubstring(const std::filesystem::path& path,
+                                            const std::string_view needle, const pid_t child)
+{
+    constexpr auto cLimit = std::chrono::seconds{10};
+    const auto deadline = std::chrono::steady_clock::now() + cLimit;
+    std::string text;
+    while (std::chrono::steady_clock::now() < deadline) {
+        text = readAll(path);
+        if (text.find(needle) != std::string::npos) {
+            return text;
+        }
+        // A tailer that has exited is never going to print it, so say that
+        // rather than spending the whole timeout on a corpse.
+        int status = 0;
+        if (::waitpid(child, &status, WNOHANG) == child) {
+            return text;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+    }
+    return text;
+}
+
+} // namespace
+
+// --follow is the tool's other half and the one a person leaves running, so
+// it is worth an actual test rather than an assumption that the loop works.
+//
+// POSIX only, and for a reason rather than an oversight: testing it means
+// starting the tool, letting it run while records appear underneath it, and
+// then stopping it -- fork/exec/SIGTERM is how that is spelled here, as it
+// already is for the fork and child-capture tests. The alternative,
+// teaching the tool a bounded-follow option purely so a test could reach
+// it, is exactly the test-only branch R7.2 forbids.
+TEST_CASE("sub0log-cat --follow prints records written after it started")
+{
+    const auto directory = sub0log::test::freshDirectory("catfollow");
+    const auto output = directory / "follow.txt";
+
+    auto logger = sub0log::Logger::create({.directory_ = directory.string()});
+    REQUIRE(logger.valid());
+    sub0log::Logger::ScopedBind bind{logger};
+
+    sub0log_info(cStorage, "before the tailer");
+
+    const pid_t tailer = ::fork();
+    REQUIRE(tailer >= 0);
+    if (tailer == 0) {
+        // The child is the tool. Redirect its stdout to the capture file
+        // and exec -- no library state of the parent's survives, so the
+        // fork detach this repository added is irrelevant here.
+        const int fd = ::open(output.string().c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0) { ::_exit(2); }
+        if (::dup2(fd, STDOUT_FILENO) < 0) { ::_exit(3); }
+        ::execl(SUB0LOG_CAT_PATH, "sub0log-cat", "--follow", directory.string().c_str(),
+                static_cast<char*>(nullptr));
+        ::_exit(4); // execl only returns on failure
+    }
+
+    // Wait for the first pass before writing anything else, so that what
+    // follows is genuinely "after the tailer started" rather than a race.
+    const std::string firstPass = waitForSubstring(output, "before the tailer", tailer);
+    CAPTURE(firstPass);
+    REQUIRE(firstPass.find("before the tailer") != std::string::npos);
+
+    sub0log_warning(cStorage, "after the tailer started");
+
+    const std::string text = waitForSubstring(output, "after the tailer started", tailer);
+    CAPTURE(text);
+
+    ::kill(tailer, SIGTERM);
+    int status = 0;
+    ::waitpid(tailer, &status, 0);
+
+    const auto first = text.find("before the tailer");
+    const auto second = text.find("after the tailer started");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(second != std::string::npos);
+    // Order matters as much as presence: the second record was written
+    // after the tailer had already printed the first, so seeing it at all
+    // means a later pass picked it up.
+    CHECK(first < second);
+    // And exactly once each -- a tailer that reprints what it has already
+    // shown is worse than one that misses something.
+    CHECK(text.find("before the tailer", first + 1) == std::string::npos);
+    CHECK(text.find("after the tailer started", second + 1) == std::string::npos);
+
+    std::filesystem::remove_all(directory);
+}
+#endif // !_WIN32
 
 #endif // SUB0LOG_CAT_PATH
