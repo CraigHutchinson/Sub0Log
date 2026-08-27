@@ -3,8 +3,14 @@
 // child record kinds in v1 (its site table only knows Message/SiteDefinition),
 // so these tests read at the RAW level -- SegmentReader::visit -- and check
 // kind/payload bytes by hand against wire.hpp, exactly as R2.3 asks for.
-
-#ifndef _WIN32
+//
+// Most cases run on every platform: the child command is chosen per platform
+// (cmd.exe /c ... on Windows, sh -c ... elsewhere) but the assertions against
+// the recorded wire bytes are identical, because R5.5/R5.6 promise the same
+// thing regardless of what OS the child ran on. A few cases are genuinely
+// platform-specific -- POSIX signals have no Windows equivalent, and a failed
+// exec surfaces completely differently -- and stay gated, each with its own
+// comment explaining why.
 
 #include <sub0log/child.hpp>
 #include <sub0log/context.hpp>
@@ -18,7 +24,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <csignal>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -28,11 +33,11 @@
 #include <string_view>
 #include <vector>
 
-#include <cstdlib> // ::setenv/::unsetenv
+#if !defined(_WIN32)
+#  include <csignal> // SIGTERM, for the POSIX-only terminating-signal case.
+#endif
 
 namespace {
-
-
 
 // A committed record, payload bytes copied out so it outlives the visit()
 // call (RecordView::payload_ is only a view into the segment image).
@@ -103,9 +108,155 @@ sub0log::wire::ChildExitPayload asChildExit(const RawRecord& r)
     return sub0log::wire::loadUnaligned<sub0log::wire::ChildExitPayload>(r.payload_.data());
 }
 
+/// argv for "run this one-line shell script and exit": cmd.exe /c on
+/// Windows (which has no /bin/sh), sh -c elsewhere. The script text itself
+/// is *not* portable between the two shells (";" vs "&", "$VAR" vs "%VAR%"),
+/// so callers that need a script write it per-platform and pass it here --
+/// this only picks the interpreter.
+std::vector<std::string> shellArgv(const std::string& script)
+{
+#if defined(_WIN32)
+    return {"cmd.exe", "/c", script};
+#else
+    return {"sh", "-c", script};
+#endif
+}
+
 } // namespace
 
-TEST_CASE("a captured /bin/echo produces ChildStart, ChildOutput and a clean ChildExit (R5.5)")
+// ---------------------------------------------------------------------------
+// Windows command-line quoting (child.hpp's quoteWindowsCommandLineArgument
+// and buildWindowsCommandLine): pure string logic with no Win32 dependency,
+// so -- unlike the rest of this file -- these run and are meaningful on
+// every platform, including the POSIX CI that is the only CI this task's
+// author can actually run. There is no CommandLineToArgvW to call outside
+// Windows, so the round-trip case below replicates the algorithm it
+// documents (the inverse of the quoting function under test) rather than
+// skip verifying the split.
+
+namespace {
+
+/// Mirrors the documented CommandLineToArgvW / MSVC CRT command-line
+/// splitting rules: a run of N backslashes followed by a '"' contributes
+/// N/2 literal backslashes, and either escapes a literal '"' (N odd) or
+/// toggles quoting (N even, consumed); a run of backslashes not followed by
+/// '"' is all literal; a bare '"' toggles quoting; unquoted whitespace ends
+/// an argument. Written only so the quoting logic can be round-trip tested
+/// here, without a Windows box to run CommandLineToArgvW itself on.
+std::vector<std::string> splitWindowsCommandLineForTest(const std::string& commandLine)
+{
+    std::vector<std::string> args;
+    std::string current;
+    bool inQuotes = false;
+    bool haveArg = false;
+    std::size_t i = 0;
+    const std::size_t n = commandLine.size();
+
+    while (i < n) {
+        const char c = commandLine[i];
+        if (!inQuotes && (c == ' ' || c == '\t')) {
+            if (haveArg) {
+                args.push_back(current);
+                current.clear();
+                haveArg = false;
+            }
+            ++i;
+            continue;
+        }
+        haveArg = true;
+        if (c == '\\') {
+            std::size_t backslashes = 0;
+            while (i < n && commandLine[i] == '\\') {
+                ++backslashes;
+                ++i;
+            }
+            if (i < n && commandLine[i] == '"') {
+                current.append(backslashes / 2u, '\\');
+                if (backslashes % 2u == 1u) {
+                    current.push_back('"'); // Escaped quote: literal, does not toggle.
+                    ++i;
+                } else {
+                    inQuotes = !inQuotes; // Unescaped: toggles quoting, and is consumed.
+                    ++i;
+                }
+            } else {
+                current.append(backslashes, '\\'); // Not before a quote: every one is literal.
+            }
+            continue;
+        }
+        if (c == '"') {
+            inQuotes = !inQuotes;
+            ++i;
+            continue;
+        }
+        current.push_back(c);
+        ++i;
+    }
+    if (haveArg) {
+        args.push_back(current);
+    }
+    return args;
+}
+
+} // namespace
+
+TEST_CASE("Windows command-line quoting round-trips through the documented split rules")
+{
+    // Each vector is a whole argv; buildWindowsCommandLine joins it into the
+    // one string CreateProcessW would take, and splitting that back apart
+    // must reproduce the original argv exactly -- the property that matters
+    // (spawn() launches the child CreateProcessW's own parser will re-split
+    // the same way), not any particular quoted-string shape.
+    const std::vector<std::vector<std::string>> vectors = {
+        {"simple"},
+        {"has space"},
+        {"trailing\\backslash\\in\\the\\middle"},
+        {"has space and a trailing backslash\\"},
+        {"embedded\"quote"},
+        {"back\\\"slash-then-quote"},
+        {""},
+        {"C:\\Program Files\\App\\app.exe", "--flag", "value with spaces", "trailing\\\\", ""},
+        {"a\\\\\\"},
+        {"tab\ttab"},
+        {"quote\"and\\backslash\\\"combo"},
+        {"\"\""},
+        {"C:\\Program Files (x86)\\Vendor\\tool.exe", "--config", "C:\\Users\\a b\\config.json"},
+    };
+
+    for (const auto& argv : vectors) {
+        const std::string commandLine = sub0log::detail::buildWindowsCommandLine(argv);
+        const std::vector<std::string> roundTripped = splitWindowsCommandLineForTest(commandLine);
+        CHECK(roundTripped == argv);
+    }
+}
+
+TEST_CASE("Windows command-line quoting matches the documented rules on known shapes")
+{
+    using sub0log::detail::quoteWindowsCommandLineArgument;
+
+    // No special characters: quoting would only add noise.
+    CHECK(quoteWindowsCommandLineArgument("plain") == "plain");
+    // A space forces quoting, with nothing else changed.
+    CHECK(quoteWindowsCommandLineArgument("a b") == "\"a b\"");
+    // An embedded quote forces quoting and is itself escaped with one backslash.
+    CHECK(quoteWindowsCommandLineArgument("a\"b") == "\"a\\\"b\"");
+    // Backslashes nowhere near a quote pass through literally, undoubled, unquoted.
+    CHECK(quoteWindowsCommandLineArgument("a\\b") == "a\\b");
+    CHECK(quoteWindowsCommandLineArgument("a\\") == "a\\");
+    // Once a space forces quoting, a trailing backslash must be doubled --
+    // otherwise it would escape the closing quote this function adds rather
+    // than terminate the argument.
+    CHECK(quoteWindowsCommandLineArgument("a \\") == "\"a \\\\\"");
+    // An empty argument still needs an explicit "" -- CommandLineToArgvW has
+    // no other way to produce a zero-length argv entry.
+    CHECK(quoteWindowsCommandLineArgument("") == "\"\"");
+}
+
+// ---------------------------------------------------------------------------
+// Process spawn/capture: most cases run on every platform (R5.5/R5.6), a few
+// stay POSIX-only where Windows has no equivalent to assert against.
+
+TEST_CASE("a captured echo produces ChildStart, ChildOutput and a clean ChildExit (R5.5)")
 {
     const auto directory = sub0log::test::freshDirectory("echo");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
@@ -117,7 +268,15 @@ TEST_CASE("a captured /bin/echo produces ChildStart, ChildOutput and a clean Chi
         sub0log::CorrelationScope scope{};
         correlationSeen = scope.id();
 
+        // POSIX execs /bin/echo directly (no shell); Windows has no such
+        // binary, so cmd.exe's builtin is the closest equivalent -- its own
+        // /c parsing takes the rest of the line literally here, no
+        // sub0log-side quoting concerns for a plain phrase like this one.
+#if defined(_WIN32)
+        auto child = sub0log::ChildProcess::spawn({.argv_ = {"cmd.exe", "/c", "echo hello from the child"}});
+#else
         auto child = sub0log::ChildProcess::spawn({.argv_ = {"/bin/echo", "hello from the child"}});
+#endif
         REQUIRE(child.valid());
         const auto status = child.wait();
         CHECK(status.exitCode_ == 0);
@@ -164,8 +323,12 @@ TEST_CASE("stdout and stderr are captured on separate streams, per-line (R5.5)")
 
     {
         sub0log::Logger::ScopedBind bind{logger};
-        auto child = sub0log::ChildProcess::spawn(
-            {.argv_ = {"sh", "-c", "echo out1; echo out2; echo err1 1>&2; echo out3; echo err2 1>&2"}});
+#if defined(_WIN32)
+        const std::string script = "echo out1&echo out2&echo err1 1>&2&echo out3&echo err2 1>&2";
+#else
+        const std::string script = "echo out1; echo out2; echo err1 1>&2; echo out3; echo err2 1>&2";
+#endif
+        auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv(script)});
         REQUIRE(child.valid());
         const auto status = child.wait();
         CHECK(status.exitCode_ == 0);
@@ -200,7 +363,7 @@ TEST_CASE("stdout and stderr are captured on separate streams, per-line (R5.5)")
     std::filesystem::remove_all(directory);
 }
 
-TEST_CASE("exit code and terminating signal both reach ChildExit and wait()'s return")
+TEST_CASE("an exit code reaches ChildExit and wait()'s return")
 {
     const auto directory = sub0log::test::freshDirectory("exit");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
@@ -209,11 +372,36 @@ TEST_CASE("exit code and terminating signal both reach ChildExit and wait()'s re
     {
         sub0log::Logger::ScopedBind bind{logger};
 
-        auto exited = sub0log::ChildProcess::spawn({.argv_ = {"sh", "-c", "exit 7"}});
+        auto exited = sub0log::ChildProcess::spawn({.argv_ = shellArgv("exit 7")});
         REQUIRE(exited.valid());
         const auto exitedStatus = exited.wait();
         CHECK(exitedStatus.exitCode_ == 7);
         CHECK(exitedStatus.signal_ == 0);
+    }
+
+    const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
+    const auto exits = recordsOfKind(all, sub0log::wire::RecordKind::ChildExit);
+    REQUIRE(exits.size() == 1u);
+    CHECK(asChildExit(exits[0]).exitCode_ == 7);
+    CHECK(asChildExit(exits[0]).signal_ == 0);
+
+    std::filesystem::remove_all(directory);
+}
+
+#if !defined(_WIN32)
+// Windows has no signal concept at all (ExitStatus::signal_'s own comment):
+// there is nothing portable to send a child that terminates it the way
+// SIGTERM does, and nothing for signal_ to hold there but 0. This case is
+// therefore POSIX-only rather than approximated with e.g. TerminateProcess,
+// which is a different, unsignaled kind of kill with no WTERMSIG analogue.
+TEST_CASE("a terminating signal reaches ChildExit and wait()'s return as signal_ (POSIX only)")
+{
+    const auto directory = sub0log::test::freshDirectory("signal");
+    auto logger = sub0log::Logger::create({.directory_ = directory.string()});
+    REQUIRE(logger.valid());
+
+    {
+        sub0log::Logger::ScopedBind bind{logger};
 
         auto killed = sub0log::ChildProcess::spawn({.argv_ = {"sh", "-c", "kill -TERM $$"}});
         REQUIRE(killed.valid());
@@ -223,13 +411,12 @@ TEST_CASE("exit code and terminating signal both reach ChildExit and wait()'s re
 
     const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
     const auto exits = recordsOfKind(all, sub0log::wire::RecordKind::ChildExit);
-    REQUIRE(exits.size() == 2u);
-    CHECK(asChildExit(exits[0]).exitCode_ == 7);
-    CHECK(asChildExit(exits[0]).signal_ == 0);
-    CHECK(asChildExit(exits[1]).signal_ == SIGTERM);
+    REQUIRE(exits.size() == 1u);
+    CHECK(asChildExit(exits[0]).signal_ == SIGTERM);
 
     std::filesystem::remove_all(directory);
 }
+#endif // !_WIN32
 
 TEST_CASE("an interceptor can suppress lines, counted, and survives throwing (R5.6)")
 {
@@ -240,9 +427,12 @@ TEST_CASE("an interceptor can suppress lines, counted, and survives throwing (R5
     {
         sub0log::Logger::ScopedBind bind{logger};
 
-        sub0log::ChildOptions options{
-            .argv_ = {"sh", "-c", "echo keep-this; echo NOISE-drop-me; echo also-keep; echo NOISE-again"},
-        };
+#if defined(_WIN32)
+        const std::string script = "echo keep-this&echo NOISE-drop-me&echo also-keep&echo NOISE-again";
+#else
+        const std::string script = "echo keep-this; echo NOISE-drop-me; echo also-keep; echo NOISE-again";
+#endif
+        sub0log::ChildOptions options{.argv_ = shellArgv(script)};
         options.onLine_ = [](const sub0log::ChildLine& line) {
             if (line.text_.find("NOISE") != std::string_view::npos) {
                 if (line.text_ == "NOISE-again") {
@@ -293,9 +483,12 @@ TEST_CASE("an interceptor can harvest a value from output as it arrives (R5.6)")
     {
         sub0log::Logger::ScopedBind bind{logger};
 
-        sub0log::ChildOptions options{
-            .argv_ = {"sh", "-c", "echo starting up; echo ready on port 4242; echo steady state"},
-        };
+#if defined(_WIN32)
+        const std::string script = "echo starting up&echo ready on port 4242&echo steady state";
+#else
+        const std::string script = "echo starting up; echo ready on port 4242; echo steady state";
+#endif
+        sub0log::ChildOptions options{.argv_ = shellArgv(script)};
         options.onLine_ = [&](const sub0log::ChildLine& line) {
             constexpr std::string_view marker = "ready on port ";
             const auto pos = line.text_.find(marker);
@@ -330,7 +523,11 @@ TEST_CASE("SUB0LOG_CORRELATION propagates into the child's environment (R5.4)")
 
         // A shell is not a sub0log-linked process; it cannot join the stream
         // itself, but it can print the variable, proving the parent set it.
-        auto child = sub0log::ChildProcess::spawn({.argv_ = {"sh", "-c", "echo $SUB0LOG_CORRELATION"}});
+#if defined(_WIN32)
+        auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv("echo %SUB0LOG_CORRELATION%")});
+#else
+        auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv("echo $SUB0LOG_CORRELATION")});
+#endif
         REQUIRE(child.valid());
         child.wait();
     }
@@ -351,13 +548,17 @@ TEST_CASE("a line longer than the line cap is flagged truncated and counted (R9.
 
     // sub0log::cLineCap is 4096; this line is comfortably longer.
     const std::string longLine(sub0log::cLineCap + 500u, 'x');
+#if defined(_WIN32)
+    const std::string script = "echo %LONGLINE%&echo after";
+#else
     const std::string script = "printf '%s\\n' \"$LONGLINE\"; echo after";
+#endif
 
     {
         sub0log::Logger::ScopedBind bind{logger};
-        ::setenv("LONGLINE", longLine.c_str(), 1);
-        auto child = sub0log::ChildProcess::spawn({.argv_ = {"sh", "-c", script}});
-        ::unsetenv("LONGLINE");
+        sub0log::test::setEnvVar("LONGLINE", longLine.c_str());
+        auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv(script)});
+        sub0log::test::unsetEnvVar("LONGLINE");
         REQUIRE(child.valid());
         child.wait();
 
@@ -383,7 +584,12 @@ TEST_CASE("a line longer than the line cap is flagged truncated and counted (R9.
 TEST_CASE("with no Logger bound at spawn, the child still runs and output is counted unlogged (R9.1)")
 {
     // No Logger::create()/ScopedBind at all: Logger::active() is nullptr.
-    auto child = sub0log::ChildProcess::spawn({.argv_ = {"sh", "-c", "echo one; echo two; echo three"}});
+#if defined(_WIN32)
+    const std::string script = "echo one&echo two&echo three";
+#else
+    const std::string script = "echo one; echo two; echo three";
+#endif
+    auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv(script)});
     REQUIRE(child.valid());
     const auto status = child.wait();
     CHECK(status.exitCode_ == 0);
@@ -394,13 +600,20 @@ TEST_CASE("with no Logger bound at spawn, the child still runs and output is cou
     CHECK(stats.suppressedLines_ == 0u);
 }
 
+#if !defined(_WIN32)
+// spawn()'s contract for a bad executable is platform-specific by
+// construction, not just untested on Windows: POSIX's spawn() only forks
+// and execvp()s, so a failed exec is the CHILD's failure, reported through
+// its exit status (127) with spawn() itself having already returned a valid
+// ChildProcess -- there is no channel back to the parent from inside the
+// forked-but-not-yet-exec'd child other than that exit code. CreateProcessW
+// has no such split: resolving the executable happens synchronously in the
+// PARENT before any child exists, so a bad path fails spawn() itself
+// (invalid ChildProcess, error() set) rather than producing exit code 127.
+// Both are R9.2-honest -- visible, not silent -- but they are different
+// shapes of visible, and asserting POSIX's shape on Windows would be wrong.
 TEST_CASE("a nonexistent executable spawns successfully but exits 127 (R9.2: visible, not silent)")
 {
-    // spawn() itself only forks and execvp()s; a failed exec is the CHILD's
-    // failure, reported through its exit status -- exactly what a shell
-    // reports for "command not found" -- not a spawn() failure. There is no
-    // channel back to the parent from inside the forked-but-not-yet-exec'd
-    // child other than that exit code (documented in the header's contract).
     const auto directory = sub0log::test::freshDirectory("noexec");
     auto logger = sub0log::Logger::create({.directory_ = directory.string()});
     REQUIRE(logger.valid());
@@ -421,5 +634,4 @@ TEST_CASE("a nonexistent executable spawns successfully but exits 127 (R9.2: vis
 
     std::filesystem::remove_all(directory);
 }
-
 #endif // !_WIN32
