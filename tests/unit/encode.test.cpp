@@ -259,6 +259,36 @@ TEST_CASE("encodeArgs truncates a view at cInlineBytesCap and flags it")
     CHECK(wire::loadUnaligned<std::uint16_t>(buf.data()) == wire::cInlineBytesCap);
 }
 
+TEST_CASE("a pointer occupies eight bytes whatever the target's pointer width is")
+{
+    // The bytes, not just the size: a reader takes eight and interprets
+    // them as an address, so a narrower target must zero-extend into them
+    // rather than write four and leave the rest to the next argument.
+    int object = 0;
+    int* const address = &object;
+
+    std::byte buffer[24]{};
+    buffer[8] = std::byte{0xAB}; // a sentinel the encode must not disturb...
+    buffer[9] = std::byte{0xCD}; // ...if it writes exactly eight bytes
+
+    const auto result = sub0log::detail::encodeArgs(buffer, sizeof(buffer), address);
+    CHECK_FALSE(result.truncated_);
+    REQUIRE(result.bytes_ == 8u);
+    CHECK(buffer[8] == std::byte{0xAB});
+    CHECK(buffer[9] == std::byte{0xCD});
+
+    const auto decoded = wire::loadUnaligned<std::uint64_t>(buffer);
+    CHECK(decoded == static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(address)));
+
+    // A null pointer is an address like any other, and must not become a
+    // shorter record by accident.
+    std::byte nullBuffer[16]{};
+    const auto nullResult =
+        sub0log::detail::encodeArgs(nullBuffer, sizeof(nullBuffer), static_cast<void*>(nullptr));
+    CHECK(nullResult.bytes_ == 8u);
+    CHECK(wire::loadUnaligned<std::uint64_t>(nullBuffer) == 0u);
+}
+
 TEST_CASE("encodeArgs round-trips a mix of fixed and variable arguments")
 {
     alignas(8) std::byte buf[128]{};
@@ -306,3 +336,17 @@ static_assert(detail::WireSizeAgrees<float>);
 static_assert(detail::WireSizeAgrees<bool>);
 static_assert(detail::WireSizeAgrees<char>);
 static_assert(detail::WireSizeAgrees<void*>);
+
+// A pointer is eight bytes on the wire on every target, which is the part
+// that makes TypeCode::Pointer mean one thing to a reader. It used not to
+// be: the encoder wrote sizeof(uintptr_t) and FixedEncodable refused
+// pointers wherever that was not 8, so a 32-bit build could not log one at
+// all -- and the refusal arrived as a message about trivially copyable
+// types that never mentioned word size. These pin the invariant rather than
+// the platform, so they fail on a 64-bit machine too if the encoder ever
+// goes back to the target's own pointer width.
+static_assert(detail::Encodable<void*>);
+static_assert(detail::Encodable<const int*>);
+static_assert(detail::fixedWireSize<void*>() == 8u);
+static_assert(detail::fixedWireSize<const int*>() == 8u);
+static_assert(wire::fixedSizeOf(wire::TypeCode::Pointer) == 8u);

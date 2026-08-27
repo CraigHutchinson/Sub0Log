@@ -573,6 +573,33 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
         case wire::RecordKind::Message:
             ++messageCount;
             return;
+        // Named rather than left to `default`, which would cover them
+        // identically, because a consumer compiling this header with
+        // -Wswitch-enum gets a warning out of it otherwise -- and a
+        // header-only library that cannot be included quietly under a
+        // strict warning set has made its own problem theirs.
+        //
+        // `default` stays regardless, and it is the load-bearing arm: a
+        // kind this decoder has never heard of is exactly what lets the
+        // format grow (a SubsystemDefinition read by a decoder built before
+        // it existed lands here, counted rather than treated as damage).
+        // kind_ is a uint8_t read off a file, so a value no enumerator
+        // names is a real input, not a hypothetical.
+        //
+        // Which means the two warnings cannot both be satisfied:
+        // -Wswitch-enum wants every enumerator listed, and clang's
+        // -Wcovered-switch-default then calls the surviving `default`
+        // redundant -- on the strength of an assumption a wire format
+        // breaks. Listing them is the better half of that trade because
+        // -Wswitch-enum turns up in real warning sets and
+        // -Wcovered-switch-default essentially only inside -Weverything,
+        // which clang itself advises against shipping with.
+        case wire::RecordKind::Invalid:
+        case wire::RecordKind::Continuation:
+        case wire::RecordKind::Blob:
+        case wire::RecordKind::ChildOutput:
+        case wire::RecordKind::ChildStart:
+        case wire::RecordKind::ChildExit:
         default:
             ++skipped_; // intact, just not a shape this layer decodes
             return;

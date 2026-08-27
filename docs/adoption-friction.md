@@ -350,6 +350,45 @@ may allocate on a thread's first touch. So the contract is "a thread that
 has already emitted may emit from a handler", and its reason is one that
 only appears in a shared library.
 
+## A second sweep, and what it turned up
+
+The closing line below says the way to find the next one is to write the
+code a consumer would write. Doing that again, on consumption paths rather
+than call sites, produced one real finding and two clean bills of health
+worth recording so nobody re-derives them:
+
+- **Every header compiles standalone** (all fifteen, including the `detail/`
+  ones), and the library is warning-clean as a *consumer's* header under
+  `-Wall -Wextra -Wpedantic`, `-Wconversion -Wsign-conversion`, `-Wshadow`,
+  `-Wold-style-cast`, `-Wuseless-cast`, and clang's `-Weverything` less its
+  stylistic families. It also builds under `-fno-exceptions -fno-rtti` and
+  under clang's `-std=c++2c`. A header-only library that cannot be included
+  quietly under a strict warning set has made its own problem the
+  consumer's, so this is a property worth keeping rather than a
+  coincidence.
+
+- **`-Wswitch-enum` and `-Wcovered-switch-default` cannot both be
+  satisfied** by the decoder's record-kind switch, and the reason is
+  interesting rather than annoying: the second assumes an enum variable only
+  ever holds a named enumerator, which is exactly what a wire format
+  breaks -- `kind_` is a byte read off a file, and the `default` arm is what
+  lets the format grow. The enumerators are now listed (satisfying the flag
+  that appears in real warning sets) and `default` stays (satisfying
+  reality).
+
+- **A 32-bit target could not log a pointer at all.** `FixedEncodable`
+  refused pointers unless `sizeof(uintptr_t) == 8`, because the encoder
+  wrote the target's own pointer width while `TypeCode::Pointer` means eight
+  bytes to a reader -- so the refusal was preventing a genuine desync, at
+  the price of making the library unusable on 32-bit for any call site
+  logging an address, with a diagnostic about trivially copyable types that
+  never mentions word size. A pointer now zero-extends to eight bytes on
+  every target, which is what makes a 32-bit producer's segment decode in a
+  64-bit reader -- the arrangement this library is *for*, since the reader
+  is a separate tool. This one could not be verified locally (no 32-bit
+  toolchain, and the package proxy refuses one), so it comes with a CI arm
+  rather than an argument.
+
 ## What this changed
 
 Everything above except one item, worked in the order the list was ranked

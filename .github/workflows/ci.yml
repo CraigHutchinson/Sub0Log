@@ -86,6 +86,33 @@ jobs:
       - name: Run the ladder
         run: ctest --test-dir build -L example --output-on-failure
 
+  linux-gcc-m32:
+    # The 32-bit arm, and it exists because of one specific claim. A pointer
+    # is eight bytes on the wire on every target, so that TypeCode::Pointer
+    # means one width to a reader that may well be 64-bit reading what a
+    # 32-bit producer wrote. Before that was true the encoder wrote
+    # sizeof(uintptr_t) and the concept refused pointers wherever that was
+    # not 8, which made a 32-bit build impossible to log a pointer from --
+    # and the change fixing it could only be reasoned about locally, because
+    # no 32-bit toolchain was available there. This job is what turns it
+    # from reasoned into verified, and it is the whole suite rather than a
+    # compile check because word size reaches further than one concept:
+    # atomics, mmap, off_t and thread ids all narrow here too.
+    name: linux-gcc-m32
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install a 32-bit toolchain
+        run: sudo apt-get update && sudo apt-get install -y ninja-build g++-multilib
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS=-m32
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   packaging:
     # find_package(Sub0Log) is real infrastructure (docs/adoption-friction.md
     # 1.1), not something to trust by reading the CMakeLists.txt: this job

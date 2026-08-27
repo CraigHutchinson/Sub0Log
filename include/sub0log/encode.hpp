@@ -75,7 +75,7 @@ concept FixedEncodable = std::same_as<Decayed<T>, bool>
                       || (std::floating_point<Decayed<T>>
                           && (sizeof(Decayed<T>) == 4 || sizeof(Decayed<T>) == 8))
                       || std::is_enum_v<Decayed<T>>
-                      || (std::is_pointer_v<Decayed<T>> && sizeof(std::uintptr_t) == 8);
+                      || std::is_pointer_v<Decayed<T>>;
 
 /// The full set a call site may pass. Everything else is rejected at compile
 /// time by typeCodeFor's static_assert, which names the two escape hatches.
@@ -154,8 +154,18 @@ struct EncodeResult {
 };
 
 /// Wire size of one fixed-size argument: bool is 1 byte, an enum is the size
-/// of its underlying type, a pointer is sizeof(uintptr_t), everything else
-/// is its own size (already true by construction of FixedEncodable).
+/// of its underlying type, a pointer is always 8, everything else is its
+/// own size (already true by construction of FixedEncodable).
+///
+/// A pointer is eight bytes on the wire whatever it is in the process,
+/// which is a format decision rather than an encoding convenience. Records
+/// are read by a separate tool, quite possibly a 64-bit one reading what a
+/// 32-bit producer wrote, and TypeCode::Pointer has to mean one width for
+/// that to work at all. Previously the encoder wrote sizeof(uintptr_t) and
+/// FixedEncodable refused pointers wherever that was not 8 -- which kept
+/// the mismatch out of the wire, at the price of a 32-bit target not being
+/// able to log a pointer at all, with a diagnostic about trivially
+/// copyable types that never mentions word size.
 template <typename T>
 [[nodiscard]] constexpr std::uint32_t fixedWireSize() noexcept
 {
@@ -165,7 +175,7 @@ template <typename T>
     } else if constexpr (std::is_enum_v<U>) {
         return static_cast<std::uint32_t>(sizeof(std::underlying_type_t<U>));
     } else if constexpr (std::is_pointer_v<U>) {
-        return static_cast<std::uint32_t>(sizeof(std::uintptr_t));
+        return 8u;
     } else {
         return static_cast<std::uint32_t>(sizeof(U));
     }
@@ -245,8 +255,12 @@ inline std::uint32_t encodeFixedOne(std::byte* dst, const T& value) noexcept
         wire::storeUnaligned(dst, static_cast<std::underlying_type_t<U>>(value));
         return static_cast<std::uint32_t>(sizeof(std::underlying_type_t<U>));
     } else if constexpr (std::is_pointer_v<U>) {
-        wire::storeUnaligned(dst, reinterpret_cast<std::uintptr_t>(static_cast<U>(value)));
-        return static_cast<std::uint32_t>(sizeof(std::uintptr_t));
+        // Widened, not reinterpreted at width: a 32-bit uintptr_t
+        // zero-extends into the eight bytes TypeCode::Pointer means, so the
+        // same address decodes the same way in a reader of either width.
+        wire::storeUnaligned(
+            dst, static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(static_cast<U>(value))));
+        return 8u;
     } else {
         wire::storeUnaligned(dst, static_cast<U>(value));
         return static_cast<std::uint32_t>(sizeof(U));
