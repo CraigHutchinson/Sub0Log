@@ -28,9 +28,10 @@ Each section below is kept as it was written -- the probe, the number, the
 argument -- with what was done about it appended in bold. That is
 deliberate: a finding with its own resolution attached is worth more than a
 changelog entry, because the next person to wonder whether something is a
-bug or a decision can see which one this was and why. Every item here is
-resolved except 2.3, whose cause needs the v2 C ABI; "What this changed" at
-the end is the summary.
+bug or a decision can see which one this was and why. Every item here is now
+resolved -- 2.3 was the last one open, and v2's C ABI closed its cause
+rather than only its silence. "What this changed" at the end is the
+summary.
 
 ## The pattern worth naming first
 

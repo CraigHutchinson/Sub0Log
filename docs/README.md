@@ -92,9 +92,10 @@ friction kept on purpose, with what was done about it appended in bold. It
 exists because the first bug in that class (a forked child silently
 overwriting its parent's records) was invisible to every requirement we had,
 and the way to stop that recurring is to keep testing the library the way it
-will be used rather than the way it was specified. Every item in it is
-resolved except the plugin's duplicated instance, which needs R4's C ABI --
-and one of them, R9.3, became a requirement rather than a fix.
+will be used rather than the way it was specified. Every item in it is now
+resolved, the last being the plugin's duplicated instance, which took v2's
+C ABI to fix rather than merely to make loud -- and one of them, R9.3,
+became a requirement rather than a fix.
 
 ## On sourcing
 

@@ -115,10 +115,10 @@ built to, and remains the right place to disagree.
 What a new consumer actually hits is written down rather than left to be
 discovered: `docs/adoption-friction.md` is the register -- measured, not
 guessed -- of the bugs, the gaps and the friction that is deliberate, each
-with what was done about it. Everything in it is resolved except a plugin
-built with hidden visibility getting its own instance pointer, which needs
-the C ABI (R4) that is scheduled for v2; until then that case is at least
-loud rather than silent.
+with what was done about it. Everything in it is resolved. The last to close
+was a plugin built with hidden visibility getting its own instance pointer
+and logging into nowhere; it took two steps, a counter that made the silence
+audible and then the C ABI (R4) that removed the cause.
 
 ## License
 
