@@ -324,7 +324,14 @@ TEST_CASE("stdout and stderr are captured on separate streams, per-line (R5.5)")
     {
         sub0log::Logger::ScopedBind bind{logger};
 #if defined(_WIN32)
-        const std::string script = "echo out1&echo out2&echo err1 1>&2&echo out3&echo err2 1>&2";
+        // The redirection leads each stderr line rather than trailing it,
+        // and that is not style. `echo err1 1>&2` in cmd emits "err1 " --
+        // cmd takes everything between `echo ` and the redirection token as
+        // the text to print, so the space in front of the operator is part
+        // of the output. A shell tokenises the redirection out first and
+        // prints "err1". Identical-looking syntax, different parse, and the
+        // difference is one trailing byte that only Windows CI can see.
+        const std::string script = "echo out1&echo out2&>&2 echo err1&echo out3&>&2 echo err2";
 #else
         const std::string script = "echo out1; echo out2; echo err1 1>&2; echo out3; echo err2 1>&2";
 #endif
