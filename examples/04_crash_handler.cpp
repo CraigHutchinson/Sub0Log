@@ -25,9 +25,17 @@
 // The parent then opens both children's segment files and shows every
 // record -- ordinary work and the in-handler fatal alike -- decodes intact.
 //
-// POSIX only: signal delivery and fork() are POSIX concepts: the Windows
-// arm of this story (structured exception handling) is out of scope for
-// v1 (docs/architecture.md's phasing) and for this example.
+// POSIX only, precisely: signal delivery and fork() are POSIX concepts with
+// no Windows equivalent this library builds on. That is narrower than it
+// might sound -- v2 (complete; docs/architecture.md's phasing) shipped
+// Windows child-process support (06/10 run there) and the plugin ABI, but
+// neither shipped nor scheduled a structured-exception-handling arm for
+// *this* story, so "a v2 item" would overstate it: there is no roadmap
+// entry promising one. What the underlying durability claim (R3.1/R3.2)
+// rests on -- a MAP_SHARED mapping and a release-store commit -- is not
+// itself POSIX-specific; only the two things this example uses to *prove*
+// it (installing a POSIX signal handler, and forking to get a clean second
+// process to hard-kill) are.
 //
 // Requirements demonstrated: R3.1 (committed records survive a hard kill),
 // R3.2 (no graceful shutdown is required, or exists, on either path).
@@ -244,12 +252,14 @@ int main()
 
 int main()
 {
-    // Structured exception handling is the Windows equivalent of this
-    // story and is not implemented in v1 (docs/architecture.md's phasing:
-    // "v2 ... Windows CI"). This arm exists so the example still builds and
-    // passes on every first-class platform (R8.1), rather than being
-    // excluded from the ladder there.
-    std::puts("04_crash_handler: POSIX-only demo (signals, fork); this is a v2 story on Windows. Skipping.");
+    // This example's two proofs are both POSIX-specific mechanism (a
+    // signal handler; fork() to get a second process to SIGKILL), not a
+    // gap in what the library durably guarantees -- see the header comment
+    // above for why "a v2 item" is not the accurate way to say that. This
+    // arm exists so the example still builds and passes on every
+    // first-class platform (R8.1), rather than being excluded from the
+    // ladder there.
+    std::puts("04_crash_handler: POSIX-only demo (signals, fork -- see the header comment for why). Skipping.");
     return 0;
 }
 

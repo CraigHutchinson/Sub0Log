@@ -16,8 +16,17 @@
 // show a child's work joined to the activity that spawned it by nothing
 // more than comparing that field (R6.2).
 //
-// POSIX only: fork() is POSIX; spawning a real subprocess on Windows is
-// CreateProcess and belongs with 04/06's Windows note, not duplicated here.
+// POSIX only, and for a narrower reason than "spawning a subprocess is not
+// portable" -- since v2, it is: 06/10 spawn a real, different program
+// (`sh`, `git`) through ChildProcess::spawn() and run on every first-class
+// platform (R8.1), CreateProcessW arm included. What this file does is not
+// that: it calls raw fork() to run *this same binary* twice, sharing the
+// parent's whole address space (including `activityId`, already computed)
+// until the child diverges -- exactly the "unmodified-binary" shape R5.4's
+// own comment below is about. fork()-without-exec has no Windows
+// equivalent, and creating one is not part of this project's roadmap
+// (docs/architecture.md's phasing does not mention it); 06/10 are the
+// examples to reach for a genuine cross-platform spawn story.
 //
 // Requirements demonstrated: R5.1-R5.4.
 
@@ -189,10 +198,11 @@ int main()
 
 int main()
 {
-    // fork()+exec() is a POSIX story; CreateProcess is the Windows
-    // equivalent and, like the rest of the process-spawning examples, is a
-    // v2 item (docs/architecture.md's phasing). Skipping here.
-    std::puts("05_multi_process: POSIX-only demo (fork); this is a v2 story on Windows. Skipping.");
+    // Raw fork()-without-exec, specifically -- see the header comment above
+    // for why that is narrower than "spawning a subprocess" and has no
+    // Windows arm to reach for. 06/10 spawn a real, different program
+    // through ChildProcess::spawn() and run here.
+    std::puts("05_multi_process: POSIX-only demo (raw fork -- see the header comment for why). Skipping.");
     return 0;
 }
 

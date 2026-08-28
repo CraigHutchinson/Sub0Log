@@ -76,15 +76,28 @@ dies, nothing is lost.
 
 ## Refusing what cannot be copied
 
-Every argument must be trivially copyable at the point it enters the payload,
-enforced by the encoder rather than by convention: a `std::string` argument does
-not compile, and the call site must choose between inlining the bytes and
-passing an identifier.
+Every argument must be either trivially copyable at the point it enters the
+payload or a view over bytes it does not own, enforced by the encoder rather
+than by convention: a `std::vector`, a `std::filesystem::path` and a
+`std::chrono::duration` do not compile, and the call site must choose between
+inlining the bytes and passing an identifier.
 
 That refusal is the point. A silent conversion from a borrowed view to an owning
 string is precisely the hidden allocation that profiling finds and that nobody
 put in the code deliberately, and the way to stop it recurring is to make it a
 compile error rather than a review comment.
+
+**A correction, because this section used to name the wrong culprit.** It said
+a `std::string` argument does not compile, and for a while that was true. It
+was also wrong: a `std::string` passed by const reference and inlined as bytes
+allocates nothing -- it is the `string_view` path with the view taken on the
+caller's behalf, and the two compile to the same instructions. The rule this
+section is really about is "no allocation and no formatting at the call site",
+not "no `std::string`", and conflating them cost every consumer a wrapper at
+every string argument for no benefit. `adoption-friction.md` 1.2 has the
+measurement; the encoder now accepts anything with a non-throwing conversion to
+`std::string_view`, and keeps its full force for the three types above, each of
+which needs a representation decision only the call site can make.
 
 ## Four mechanisms for variable-length payloads
 

@@ -423,3 +423,30 @@ generic as a name gets and belongs to whoever wants it. It is
 `Logger::Stats` now, which both frees the name and puts all three snapshots
 in the same relationship to their producer. The names stay as they are,
 because they describe genuinely different things.
+
+## Found later, from writing the examples
+
+Examples are the first honest test of whether a surface is usable, so a
+finding that only surfaces when someone tries to demonstrate a feature
+belongs here beside the rest.
+
+### `ChildOptions` cannot set a child's environment -- **Gap**
+
+`ChildProcess` propagates exactly one environment variable into a spawned
+child, `SUB0LOG_CORRELATION`, and offers no way to add others. That is right
+for what it was built for -- R5.4 is about the correlation id crossing the
+process boundary -- but a supervisor spawning a third-party tool routinely
+needs more: a `PATH` it controls, a `GIT_*` or `LC_ALL` that makes the
+child's output deterministic, a credential deliberately *not* inherited.
+
+It surfaced while writing `examples/10_child_capture_git.cpp`, which wanted
+a git identity that could not depend on or disturb the developer's global
+config. The workaround there was `git config --local`, which is clean
+because git happens to offer it; a tool that only reads its environment
+would leave no such option.
+
+Not fixed here, because it is an API addition rather than a correction, and
+because the shape wants thought: an added-variables list is the obvious
+answer, but "inherit nothing except these" is the one a sandbox actually
+wants, and those are different features. Worth deciding deliberately rather
+than adding the easy half.

@@ -13,25 +13,37 @@
 // R5.6 rides the same capture threads: a LineInterceptor sees each line
 // before its record is written and can suppress noise or harvest a value
 // out of the child's output as it streams in -- both used below.
+// 10_child_capture_git.cpp deepens this same story against a real tool
+// (`git`, driving an actual throwaway repository) rather than a synthetic
+// script; this file stays focused on the mechanism.
 //
-// A wrinkle worth being explicit about: sub0log::Decoder (reader.hpp) only
-// knows Message and SiteDefinition records in v1 -- it builds its site
-// table from *your* call sites, and a captured child obviously has none.
-// So this example, like tests/system/child.test.cpp, reads the three
-// Child* record kinds at the raw SegmentReader::visit() level and decodes
-// their payloads by hand against the structs in wire.hpp. That is not a
-// missing feature so much as a boundary: Decoder speaks the typed-call-site
-// half of the format, and the child-capture kinds are a different half of
-// the same file.
+// A wrinkle worth being explicit about: sub0log::Decoder (reader.hpp) has
+// grown since v1 -- it now also reassembles Continuation chains into whole
+// arguments (11_continuation_chains.cpp) and tracks SubsystemDefinition
+// records for name lookups (02_subsystems.cpp) -- but it still has no shape
+// for the three Child* kinds themselves. That is not an oversight so much
+// as a boundary: Decoder builds its site table from *your* call sites, and
+// a captured child obviously has none, so ChildStart/ChildOutput/ChildExit
+// are counted by Decoder::skippedRecords() rather than decoded (R9.2) --
+// intact on the wire, just not typed-call-site shaped. So this example,
+// like tests/system/child.test.cpp, reads them at the raw
+// SegmentReader::visit() level and decodes their payloads by hand against
+// the structs in wire.hpp.
 //
-// POSIX only: ChildProcess::spawn() forks and execvp()s; the Windows arm
-// is v2 (docs/architecture.md's phasing), and spawn() there simply returns
-// an invalid ChildProcess.
+// This example runs on every first-class platform (R8.1): ChildProcess's
+// Windows arm (CreateProcessW) shipped in v2, and `windows-msvc` CI runs
+// seven of the nine process-spawning tests in tests/system/child.test.cpp
+// (docs/architecture.md's phasing) -- the two exceptions are a signal-
+// specific case and a bad-executable-path case, neither of which this
+// example depends on. What differs below is only the *script text*: `sh`
+// and `cmd.exe` do not speak the same syntax (`;` vs `&`, and `cmd.exe` has
+// no `/bin/sh`), so the interpreter and the script are chosen together,
+// per platform, the same way tests/system/child.test.cpp's own shellArgv()
+// helper does. Everything past that line -- ChildProcess::spawn(), the
+// interceptor, the raw record decode -- is one code path on every platform.
 //
 // Requirements demonstrated: R5.5 (attribution of a non-cooperating
 // child), R5.6 (per-line interception: suppress and harvest).
-
-#ifndef _WIN32
 
 #include <sub0log/child.hpp>
 #include <sub0log/context.hpp>
@@ -43,17 +55,23 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <mutex>
 #include <string>
-#include <unistd.h>
 #include <vector>
+
+#if defined(_WIN32)
+#  include <process.h>
+#  define SUB0LOG_EXAMPLE_PID() static_cast<unsigned long>(::_getpid())
+#else
+#  include <unistd.h>
+#  define SUB0LOG_EXAMPLE_PID() static_cast<unsigned long>(::getpid())
+#endif
 
 namespace {
 
 std::filesystem::path makeScratchDir(const char* const tag)
 {
     auto dir = std::filesystem::temp_directory_path()
-             / ("sub0log-example-" + std::string{tag} + "-" + std::to_string(::getpid()));
+             / ("sub0log-example-" + std::string{tag} + "-" + std::to_string(SUB0LOG_EXAMPLE_PID()));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     return dir;
@@ -104,6 +122,20 @@ std::string_view payloadText(const RawRecord& r, const std::size_t offset)
     return {reinterpret_cast<const char*>(r.payload_.data() + offset), r.payload_.size() - offset};
 }
 
+// argv for "run this one-line shell script and exit": cmd.exe /c on
+// Windows (which has no /bin/sh), sh -c elsewhere -- the interpreter is the
+// only part of this that is platform-specific; ChildProcess::spawn() itself
+// is not (see the file comment above). Mirrors
+// tests/system/child.test.cpp's own shellArgv() helper.
+std::vector<std::string> shellArgv(const std::string& script)
+{
+#if defined(_WIN32)
+    return {"cmd.exe", "/c", script};
+#else
+    return {"sh", "-c", script};
+#endif
+}
+
 } // namespace
 
 int main()
@@ -125,20 +157,27 @@ int main()
         // A stand-in "third-party tool": a shell script printing a mix of
         // useful lines, deliberate noise, and a readiness message with a
         // value embedded in it -- the kind of thing a real server prints
-        // once its listening socket is up.
-        sub0log::ChildOptions options{
-            .argv_ = {"/bin/sh", "-c",
-                      "echo starting up; "
-                      "echo NOISE-debug-spam; "
-                      "echo ready on port 4242; "
-                      "echo NOISE-more-spam 1>&2; "
-                      "echo steady state"},
-        };
+        // once its listening socket is up. `;` (sh) vs `&` (cmd.exe) is the
+        // only reason this text differs by platform; what it says does not.
+#if defined(_WIN32)
+        const std::string script = "echo starting up&"
+                                    "echo NOISE-debug-spam&"
+                                    "echo ready on port 4242&"
+                                    "echo NOISE-more-spam 1>&2&"
+                                    "echo steady state";
+#else
+        const std::string script = "echo starting up; "
+                                    "echo NOISE-debug-spam; "
+                                    "echo ready on port 4242; "
+                                    "echo NOISE-more-spam 1>&2; "
+                                    "echo steady state";
+#endif
+        sub0log::ChildOptions options{.argv_ = shellArgv(script)};
 
         // R5.6: the interceptor runs on the capture thread (a cold path --
         // it drains a pipe at the child's pace, not the producer's), so it
         // is allowed to do things the hot emit path never could: string
-        // searches, a mutex, writing into a captured local variable.
+        // searches, writing into a captured local variable.
         options.onLine_ = [&harvestedPort](const sub0log::ChildLine& line) {
             constexpr std::string_view noise = "NOISE";
             if (line.text_.find(noise) != std::string_view::npos) {
@@ -175,7 +214,7 @@ int main()
     const auto image = slurp(onlySegment(dir));
     const auto all = readAllRaw(image);
 
-    std::printf("-- raw Child* records (Decoder skips these kinds in v1) --\n");
+    std::printf("-- raw Child* records (Decoder counts these skipped, not undecodable -- R9.2) --\n");
     std::size_t starts = 0, outputs = 0, exits = 0;
     for (const auto& r : all) {
         using sub0log::wire::RecordKind;
@@ -220,18 +259,3 @@ int main()
     }
     return 0;
 }
-
-#else // _WIN32
-
-#include <cstdio>
-
-int main()
-{
-    // ChildProcess::spawn() on Windows returns an invalid ChildProcess in
-    // v1 (docs/architecture.md's phasing: the CreatePipe/CreateProcessW arm
-    // is v2). Skipping here rather than demonstrating a stub.
-    std::puts("06_child_capture: POSIX-only demo (fork/execvp); this is a v2 story on Windows. Skipping.");
-    return 0;
-}
-
-#endif // !_WIN32
