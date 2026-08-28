@@ -105,7 +105,13 @@ enum class RecordKind : std::uint8_t {
     SiteDefinition = 2,///< Constant half; precedes the site's first Message.
     Continuation = 3,  ///< Bounded spill of one argument of the Message
                        ///< that opened this chain (see ContinuationPayload).
-    Blob = 4,          ///< Reserved: cold bulk payloads (v2).
+    Blob = 4,          ///< Reserved, and reviewed in v2 rather than built:
+                       ///< a u16 payload already holds kilobytes in one
+                       ///< record, and continuation chains already span
+                       ///< records, so this would duplicate both
+                       ///< (docs/record-model.md, "A blob, for the cold bulk
+                       ///< case"). The value stays claimed regardless --
+                       ///< kind numbers are stable whether used or not.
     ChildOutput = 5,   ///< One captured line of a child's stdout/stderr (R5.5).
     ChildStart = 6,    ///< A third-party child was spawned: command, correlation.
     ChildExit = 7,     ///< That child ended: exit code or signal.

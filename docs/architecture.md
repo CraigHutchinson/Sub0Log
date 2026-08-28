@@ -353,12 +353,21 @@ gates all of it, so a consumer embedding the library via
 - **v1 stretch**: child capture and interception (R5.5/R5.6) -- format and
   API are in v1 (`child.hpp`, the three Child* payloads); the POSIX
   implementation lands as this branch's stretch goal.
-- **v2**: continuation chains, blob channel, Windows CI (including the
-  Windows child-capture path). The dlopen ABI round trip shipped ahead of
-  the rest of v2 (`abi_host.hpp`, `tests/system/abi.test.cpp`) since R4 was
-  this phase's named flagship item; its Windows arm is written but, like the
-  rest of v2's Windows work, CI-unverified.
-- **v3**: segment rollover, CLI.
+- **v2 (complete)**: the dlopen ABI round trip (`abi_host.hpp`,
+  `tests/system/abi.test.cpp`), which closed R4 and with it the last open
+  finding in `adoption-friction.md`; continuation chains, so a Bytes
+  argument reaches 4096 bytes rather than being cut at 512; and the Windows
+  child-capture path. The Windows work is no longer "written but
+  CI-unverified" -- `windows-msvc` builds and runs both the ABI round trip
+  and seven of the nine process-spawning child tests, the two exceptions
+  being cases Windows cannot be asked (there is no signal to send a child,
+  and a bad executable path fails in `spawn()` rather than in the child).
+  The blob channel was reviewed and deliberately not built; the reasoning
+  is in `record-model.md` beside the mechanism it describes.
+- **v3**: segment rollover. The CLI arrived early -- `tools/sub0log-cat`
+  shipped in v1, because `adoption-friction.md` 2.1 found that every
+  consumer, this repository's own examples included, was writing the same
+  forty-line printer before they could see anything at all.
 - **vNext**: a front-end/backend split at the chunk-source seam.
   `vnext-frontend-backend.md` fixes where that seam may go and why the
   classic queue-based split is off the table;

@@ -122,6 +122,30 @@ most once per occurrence. Allocation is acceptable there and the design should
 say so rather than contorting to avoid it: the discipline is "no allocation on a
 path that runs per operation", not "no allocation anywhere".
 
+*Not built, deliberately, and this is the reasoning rather than a deferral.*
+Held up against the format as it now stands, the case this describes is
+already served twice over. A record's payload is bounded by a `u16`, so
+"several kilobytes" fits in **one** record with no new mechanism at all --
+the two places that stop short of that stop there by policy, not by the
+wire: `child.hpp`'s `cLineCap` and the continuation ceiling are both
+constants. And where a payload genuinely must span records, continuation
+chains are that machinery, built and tested.
+
+What a blob would add beyond those is its *cost contract* -- permission to
+allocate. But the producer never allocates to move bytes into the mapping
+whatever their size; it `memcpy`s from the caller's memory. The allocation
+this paragraph contemplates is the caller's, assembling the text, and that
+has already happened by the time any record is written. The one shape that
+would genuinely differ is staging the copy off the calling thread, and
+`hard-kill.md` rules that out for the property this library exists to keep.
+
+So it would be a second variable-length mechanism, with its own ceiling and
+its own tests, delivering what raising a constant delivers. It gets built
+when something needs a bulk payload attached to *something other than a call
+site* -- where a Message argument is the wrong shape rather than the wrong
+size. Until then `RecordKind::Blob` stays a reserved enumerator, because
+kind values must be stable whether or not they are ever used.
+
 ## The library must not own the vocabulary
 
 A logging library that defines the subsystem enumeration cannot be reused by
