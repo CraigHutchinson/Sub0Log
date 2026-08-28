@@ -39,11 +39,6 @@ namespace sub0log {
 /// Logger::threshold(SubsystemId) for what happens above it.
 inline constexpr std::uint32_t cSubsystemLevels = 64u;
 
-/// R9.1: a drop is never silent. Snapshot type returned by Logger::stats().
-struct Stats {
-    std::uint64_t droppedRecords_{};   ///< No chunk available; record not written.
-    std::uint64_t truncatedRecords_{}; ///< Written, but a payload was capped.
-};
 
 /// Ceiling on the unbound-emit count (R9.3). Counting is exact below it and
 /// stops there, which is the whole of what makes the counter affordable --
@@ -308,6 +303,21 @@ public:
         return rootCorrelation_;
     }
 
+    /// R9.1: a drop is never silent. Snapshot of this instance's own losses.
+    ///
+    /// Nested rather than at namespace scope, which is where it used to be.
+    /// `sub0log::Stats` is a very generic name for a library to occupy in
+    /// its own namespace, and it was the odd one out: the two other
+    /// counter snapshots, ChildProcess::CaptureStats and Merger::Totals,
+    /// already live inside the class that produces them. Three *types* is
+    /// right -- producer losses, capture losses and read-side byte
+    /// accounting are different things and folding them together would
+    /// lose that -- but three placements was not.
+    struct Stats {
+        std::uint64_t droppedRecords_{};   ///< No chunk available; record not written.
+        std::uint64_t truncatedRecords_{}; ///< Written, but a payload was capped.
+    };
+
     void countDrop() noexcept;
     void countTruncation() noexcept;
     [[nodiscard]] Stats stats() const noexcept;
@@ -571,7 +581,7 @@ inline void Logger::countTruncation() noexcept
     truncated_.fetch_add(1u, std::memory_order_relaxed);
 }
 
-[[nodiscard]] inline Stats Logger::stats() const noexcept
+[[nodiscard]] inline Logger::Stats Logger::stats() const noexcept
 {
     return Stats{dropped_.load(std::memory_order_relaxed),
                 truncated_.load(std::memory_order_relaxed)};

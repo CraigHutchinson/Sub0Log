@@ -51,13 +51,20 @@
 #  endif
 #endif
 
-namespace sub0log::detail {
+namespace sub0log {
 
 /// Why a platform operation failed; carried upward, never thrown on the
 /// producer hot path. (std::expected is deliberately absent: libstdc++ 13
 /// withholds <expected> from Clang < 19, and that pairing is first-class.
 /// Fallible constructors return their object with valid() false and this
 /// stored beside it.)
+///
+/// In `sub0log` rather than `sub0log::detail`, because it is part of the
+/// surface whatever namespace it sits in: `Logger::error()` returns one and
+/// a consumer reads `.what_` off it, which every example that reports a
+/// failed create already does. `detail::` means "not the surface"
+/// everywhere else in this library, and a type that contradicts that
+/// teaches a reader to stop trusting the signal.
 struct PlatformError {
     int code_{};              ///< errno / GetLastError value.
     std::string_view what_{}; ///< Static description of the failing step.
@@ -65,6 +72,14 @@ struct PlatformError {
     /// True when an error is actually present.
     [[nodiscard]] explicit operator bool() const noexcept { return !what_.empty(); }
 };
+
+} // namespace sub0log
+
+namespace sub0log::detail {
+
+/// The name internal code has always used, kept so the platform layer's own
+/// references read as they always did.
+using PlatformError = ::sub0log::PlatformError;
 
 #if defined(_WIN32)
 

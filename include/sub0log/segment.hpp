@@ -15,12 +15,25 @@
 #include <span>
 #include <string>
 
-namespace sub0log::detail {
+namespace sub0log {
 
+/// Segment geometry, in `sub0log` rather than `sub0log::detail` for the
+/// same reason PlatformError is: a consumer fills it in. It reaches them as
+/// `Logger::Options::segment_`, and sizing a segment -- which every example
+/// with a deliberately small one does -- means writing
+/// `options.segment_.segmentBytes_`. A configuration struct nobody can
+/// configure without naming `detail::` is not a detail.
 struct SegmentOptions {
     std::uint64_t segmentBytes_{wire::cDefaultSegmentBytes};
     std::uint32_t chunkBytes_{wire::cDefaultChunkBytes};
 };
+
+} // namespace sub0log
+
+namespace sub0log::detail {
+
+/// The spelling the segment layer itself has always used.
+using SegmentOptions = ::sub0log::SegmentOptions;
 
 /** Creates the file at full size, maps it shared, writes the SegmentHeader
  *  (magic, version, geometry, random generation, process id, anchor pair)

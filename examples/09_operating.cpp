@@ -54,7 +54,7 @@ constexpr sub0log::SubsystemId cNetwork{2};
 /// a producer.
 void publishGauges(const sub0log::Logger& logger)
 {
-    const sub0log::Stats stats = logger.stats();
+    const sub0log::Logger::Stats stats = logger.stats();
     std::printf("  sub0log_dropped_records   %llu\n",
                 static_cast<unsigned long long>(stats.droppedRecords_));
     std::printf("  sub0log_truncated_records %llu\n",
@@ -124,7 +124,7 @@ int main()
     std::printf("what a metrics scrape would publish:\n");
     publishGauges(logger);
 
-    const sub0log::Stats stats = logger.stats();
+    const sub0log::Logger::Stats stats = logger.stats();
     if (stats.droppedRecords_ == 0u) {
         std::fprintf(stderr, "expected a full segment to report drops\n");
         return 1;

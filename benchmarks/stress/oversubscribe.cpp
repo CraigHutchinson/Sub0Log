@@ -92,7 +92,7 @@ ScenarioResult runOversubscribe(const RunOptions& options)
         totalEmitted += totalMessages;
     }
 
-    const Stats stats = logger.stats();
+    const Logger::Stats stats = logger.stats();
 
     const auto image = slurpFile(logger.segmentPath());
     auto reader = SegmentReader::open(image);

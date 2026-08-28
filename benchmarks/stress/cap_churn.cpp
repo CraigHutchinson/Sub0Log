@@ -85,7 +85,7 @@ ScenarioResult runCapChurn(const RunOptions& options)
         }
     }
 
-    const Stats stats = logger.stats();
+    const Logger::Stats stats = logger.stats();
     checker.check(stats.droppedRecords_ == 0u, "no drops (segment sized generously)",
                  0u, stats.droppedRecords_);
 

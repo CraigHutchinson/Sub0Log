@@ -159,7 +159,7 @@ TEST_CASE("a subsystem name longer than the inline cap is truncated, and the cut
     const auto directory = freshDirectory("subsys-truncated");
     const std::string longName(static_cast<std::size_t>(wire::cInlineBytesCap) + 50u, 'x');
 
-    Stats stats{};
+    Logger::Stats stats{};
     {
         auto logger = Logger::create({.directory_ = directory.string()});
         REQUIRE(logger.valid());

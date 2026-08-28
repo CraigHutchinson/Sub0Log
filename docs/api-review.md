@@ -390,3 +390,36 @@ invariants held) after the changes touching `log.hpp`, `severity.hpp`, and
    public `sub0log` namespace (§5).
 2. Rename `CaptureStats` and `Totals` to a shared name with `Stats`, or
    otherwise unify the three counter-snapshot vocabularies (§6).
+
+## The two proposals, decided
+
+Both were held back from the audit itself because they are renames rather
+than additions. Both are now done, and one of them is not quite the change
+that was proposed.
+
+**`detail::SegmentOptions` and `detail::PlatformError` -- accepted as
+proposed.** `detail::` means "not the surface" everywhere else in this
+library, and these two contradicted it: a consumer sizing a segment writes
+`options.segment_.segmentBytes_`, and a consumer reporting a failed
+`Logger::create` reads `.what_` off `error()`. Both now live in `sub0log`,
+with `using` aliases left behind in `detail` so the platform and segment
+layers' own thirty-odd references read exactly as they did. Nothing broke,
+and a consumer can now name either type without reaching into a namespace
+that tells them not to.
+
+**Three counter snapshots -- accepted, with the finding corrected.** The
+proposal was that `Stats`, `CaptureStats` and `Totals` are three names for
+one concept. They are not: producer losses (dropped and truncated records),
+capture losses (captured, truncated and unlogged lines) and read-side
+accounting (unreadable and unwritten bytes, undecodable records) are three
+different things, and folding them into one type would lose the distinction
+that makes each of them answerable.
+
+The real defect was placement, not naming, and it is sharper than the one
+reported. `ChildProcess::CaptureStats` and `Merger::Totals` are nested in
+the class that produces them; `Stats` sat at **namespace scope** -- so a
+logging library was occupying the name `sub0log::Stats`, which is about as
+generic as a name gets and belongs to whoever wants it. It is
+`Logger::Stats` now, which both frees the name and puts all three snapshots
+in the same relationship to their producer. The names stay as they are,
+because they describe genuinely different things.

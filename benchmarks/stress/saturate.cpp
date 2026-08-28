@@ -101,7 +101,7 @@ ScenarioResult runSaturate(const RunOptions& options)
         totalEmitted += static_cast<std::uint64_t>(threadCount) * perThread;
     } // unbind; the Logger and its mapping are still alive below.
 
-    const Stats stats = logger.stats();
+    const Logger::Stats stats = logger.stats();
 
     const auto image = slurpFile(logger.segmentPath());
     auto reader = SegmentReader::open(image);
