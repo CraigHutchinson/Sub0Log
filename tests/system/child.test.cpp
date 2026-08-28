@@ -452,7 +452,7 @@ TEST_CASE("an interceptor can suppress lines, counted, and survives throwing (R5
 
         auto child = sub0log::ChildProcess::spawn(options);
         REQUIRE(child.valid());
-        child.wait();
+        (void)child.wait();
 
         const auto stats = child.stats();
         CHECK(stats.capturedLines_ == 4u);
@@ -508,7 +508,7 @@ TEST_CASE("an interceptor can harvest a value from output as it arrives (R5.6)")
 
         auto child = sub0log::ChildProcess::spawn(options);
         REQUIRE(child.valid());
-        child.wait();
+        (void)child.wait();
     }
 
     CHECK(harvestedPort == "4242");
@@ -536,7 +536,7 @@ TEST_CASE("SUB0LOG_CORRELATION propagates into the child's environment (R5.4)")
         auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv("echo $SUB0LOG_CORRELATION")});
 #endif
         REQUIRE(child.valid());
-        child.wait();
+        (void)child.wait();
     }
 
     const auto all = readAllRecords(sub0log::test::slurp(sub0log::test::onlySegmentIn(directory)));
@@ -567,7 +567,7 @@ TEST_CASE("a line longer than the line cap is flagged truncated and counted (R9.
         auto child = sub0log::ChildProcess::spawn({.argv_ = shellArgv(script)});
         sub0log::test::unsetEnvVar("LONGLINE");
         REQUIRE(child.valid());
-        child.wait();
+        (void)child.wait();
 
         const auto stats = child.stats();
         CHECK(stats.capturedLines_ == 2u);

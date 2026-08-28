@@ -72,7 +72,11 @@ enum class SegmentError : std::uint8_t {
  */
 class SegmentReader {
 public:
-    /// On failure the result has valid() false and error() saying why.
+    /// `image` is borrowed, not copied: this reader stores the span and
+    /// every RecordView::payload_ visit() hands out views into it directly,
+    /// so `image` must outlive this SegmentReader (and, downstream, any
+    /// Decoder built from it -- see Decoder's own class comment). On
+    /// failure the result has valid() false and error() saying why.
     [[nodiscard]] static SegmentReader open(std::span<const std::byte> image) noexcept;
 
     [[nodiscard]] bool valid() const noexcept { return error_ == SegmentError::Ok; }
@@ -139,7 +143,10 @@ private:
 using DecodedArg = std::variant<bool, char, std::int64_t, std::uint64_t,
                                 double, std::string_view>;
 
-/// The constant half, reassembled from a SiteDefinition record.
+/// The constant half, reassembled from a SiteDefinition record. format_ and
+/// file_ are views, not owned strings -- see Decoder's class comment below
+/// ("Lifetime, and the mistake it invites") for what they borrow from and
+/// how long that lasts.
 struct DecodedSite {
     std::uint64_t siteId_{};
     SubsystemId subsystem_{};
@@ -151,7 +158,9 @@ struct DecodedSite {
 };
 
 /// One message, typed. Filterable on every field without touching text
-/// (R2.2); a test asserts on fields, not substrings (R2.3).
+/// (R2.2); a test asserts on fields, not substrings (R2.3). site_ and any
+/// string_view inside args_ are borrows, not copies -- see Decoder's class
+/// comment below for their lifetime.
 struct DecodedRecord {
     const DecodedSite* site_{nullptr};
     std::uint64_t monoNs_{};
@@ -192,6 +201,22 @@ struct DecodedRecord {
  *  that nothing survives past the image, or past this Decoder, whichever
  *  goes first; a chained argument just also depends on the Decoder for one
  *  additional reason (its bytes, not only its address, live nowhere else).
+ *
+ *  **A Decoder is copyable and movable, but a container of them can betray
+ *  that.** Nothing here deletes copy or move, and copying is safe on its
+ *  own (continuationStorage_ deep-copies into new nodes, and no view
+ *  handed out by the original is affected by that). The hazard is
+ *  specifically a `std::vector<Decoder>` -- or any relocating container --
+ *  that grows after a DecodedRecord has already been read out of one of
+ *  its elements: libstdc++'s `std::deque` move constructor is not marked
+ *  `noexcept`, so Decoder's isn't either, so a growing vector falls back to
+ *  *copying* elements on reallocation rather than moving them. The already
+ *  issued DecodedRecord still points at the original, now-discarded
+ *  Decoder's continuationStorage_ -- a use-after-free that AddressSanitizer
+ *  caught this way once already (see Merger::segments_ below, which is
+ *  `std::deque<Loaded>` rather than `std::vector` for exactly this reason).
+ *  Keep more than one Decoder alive at once only in a container that never
+ *  relocates an element it already holds.
  *
  *  Formatting is the one place text is made, and only on request: format()
  *  renders via std::format-style substitution of "{}" placeholders. A record

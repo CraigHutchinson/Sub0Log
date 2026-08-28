@@ -152,6 +152,10 @@ inline std::atomic<std::uint64_t> sUnboundEmits{0};
  */
 class Logger {
 public:
+    /// Initialize by field name (`Options{.directory_ = ..., .stem_ = ...}`).
+    /// `directory_` and `stem_` are adjacent and both `std::string`; nothing
+    /// stops the positional form the language still allows, and a swap
+    /// there compiles silently -- naming the field is what catches it.
     struct Options {
         std::string directory_{"."};
         std::string stem_{"sub0log"};
@@ -316,6 +320,10 @@ public:
         return segment_.generation();
     }
 
+    /// A reference into this Logger's own segment path, not an owned copy:
+    /// valid as long as this Logger is (and, per the class comment above,
+    /// as long as this Logger stays at the address it was bound at -- a
+    /// moved-from or destroyed Logger takes this reference with it).
     [[nodiscard]] const std::string& segmentPath() const noexcept
     {
         return segment_.path();

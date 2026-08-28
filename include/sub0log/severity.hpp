@@ -27,6 +27,12 @@ enum class Severity : std::uint8_t {
     Fatal = 6,
 };
 
+/// True when `value` is at or above `threshold` on the ladder above.
+/// Parameter order matters and both are plain `Severity` values with
+/// nothing at the call site to catch a swap: `atLeast(a, b)` and
+/// `atLeast(b, a)` both compile and disagree whenever `a != b`. Read it as
+/// "is `value` severe enough for `threshold`" -- the same order
+/// `Logger::threshold()` and every filter in this library use.
 [[nodiscard]] constexpr bool atLeast(const Severity value, const Severity threshold) noexcept
 {
     return static_cast<std::uint8_t>(value) >= static_cast<std::uint8_t>(threshold);

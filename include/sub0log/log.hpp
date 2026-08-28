@@ -70,5 +70,10 @@
 /// The tier above Error for what could not be classified (R9.2).
 #define sub0log_unclassified(subsystem, formatText, ...) \
     SUB0LOG_EMIT(::sub0log::Severity::Unclassified, (subsystem), formatText __VA_OPT__(, ) __VA_ARGS__)
+/// The top of the ladder -- a record, nothing more: this does not abort,
+/// terminate, or throw, unlike LOG(FATAL) in some other logging libraries.
+/// Pair it with your own call to std::abort()/std::terminate() (as
+/// examples/04_crash_handler.cpp does) if the process should not continue;
+/// sub0log_fatal by itself only marks the record's severity.
 #define sub0log_fatal(subsystem, formatText, ...) \
     SUB0LOG_EMIT(::sub0log::Severity::Fatal, (subsystem), formatText __VA_OPT__(, ) __VA_ARGS__)

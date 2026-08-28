@@ -72,6 +72,10 @@ struct ChildLine {
 /// as InterceptAction::Log (capture must not die because a matcher did).
 using LineInterceptor = std::function<InterceptAction(const ChildLine&)>;
 
+/// Initialize by field name (`ChildOptions{.argv_ = ...}`), not
+/// positionally: captureStdout_ and captureStderr_ sit next to each other,
+/// both `bool`, both defaulting `true` -- a positional swap of the two
+/// compiles and silently captures the wrong stream.
 struct ChildOptions {
     /// argv[0] is the executable; resolved via PATH like execvp.
     std::vector<std::string> argv_{};
@@ -214,8 +218,14 @@ public:
         std::int32_t signal_{};
     };
 
-    /// Blocks until exit and capture drain; idempotent after the first call.
-    ExitStatus wait() noexcept;
+    /// Blocks until exit and capture drain; idempotent after the first call
+    /// (a second call returns the same ExitStatus rather than re-waiting).
+    /// That idempotence is also the only way to recover the exit status
+    /// after discarding it once -- there is no separate exitStatus()
+    /// accessor, so `child.wait();` followed later by `auto s =
+    /// child.wait();` happens to work, but reads as though it blocks twice.
+    /// Capture the return the first time.
+    [[nodiscard]] ExitStatus wait() noexcept;
 
     struct CaptureStats {
         std::uint64_t capturedLines_{};
@@ -509,7 +519,7 @@ inline ChildProcess::ChildProcess(ChildProcess&& other) noexcept
 inline ChildProcess::~ChildProcess()
 {
     if (childId_ != 0u && !waited_) {
-        wait();
+        (void)wait(); // the destructor only needs the draining side effect.
     }
 }
 
@@ -526,7 +536,7 @@ inline ChildProcess::~ChildProcess()
     };
 }
 
-inline ChildProcess::ExitStatus ChildProcess::wait() noexcept
+[[nodiscard]] inline ChildProcess::ExitStatus ChildProcess::wait() noexcept
 {
     if (waited_) {
         return exitStatus_;
