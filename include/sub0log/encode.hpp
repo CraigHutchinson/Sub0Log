@@ -11,6 +11,7 @@
 
 #include "wire.hpp"
 
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +19,7 @@
 #include <span>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace sub0log::detail {
 
@@ -196,6 +198,69 @@ template <typename T>
         ++len;
     }
     return len;
+}
+
+// ---------------------------------------------------------------------------
+// Continuation-chain sizing (detail/emit.hpp's chained path only)
+//
+// Nothing below this point is reached by a call site whose argument pack
+// has no Bytes-shaped argument at all -- cHasByteArg is checked with
+// `if constexpr` at the one call site that matters (emit()), so a pack of
+// only fixed-size arguments never instantiates, let alone runs, any of it.
+
+/// True when the pack contains at least one argument that encodes as
+/// wire::TypeCode::Bytes. Decided at compile time so detail::emit can route
+/// a call site with none of these through the original, unmodified path --
+/// the branch this buys is a compiler decision, not a runtime one, which is
+/// what keeps a fixed-only call site (emit.fixed2's shape) paying nothing
+/// for continuation-chain support existing at all.
+template <typename... Args>
+inline constexpr bool cHasByteArg = (false || ... || (ByteView<Args> || CStringLike<Args> || StringViewLike<Args>));
+
+/// Ceiling on one argument's total logical length that the chained emit
+/// path will ever act on: the inline cap plus the most a full chain can
+/// carry (wire::cMaxContinuations further records of wire::cInlineBytesCap
+/// bytes each). Bytes past this are truncated, exactly as bytes past
+/// wire::cInlineBytesCap alone always were -- this is that same cut, moved
+/// out to the chain's ceiling instead of the first record's.
+inline constexpr std::size_t cArgCeiling =
+    static_cast<std::size_t>(wire::cInlineBytesCap)
+    * (1u + static_cast<std::size_t>(wire::cMaxContinuations));
+
+/// Raw pointer and length for one Bytes-producing argument; {nullptr, 0}
+/// for anything else. "Raw" means uncapped for a view type (its size() is
+/// already O(1), so there is no cost to knowing the true length) and capped
+/// at cArgCeiling **plus one** for a CStringLike argument -- the one extra
+/// byte is what tells the sizing pass in emitChained "this is longer than
+/// the ceiling, not merely as long as it", without scanning any further to
+/// learn it (the exact excess past the ceiling is truncated regardless, so
+/// nothing needs it). Bounding the scan there rather than at cArgCeiling
+/// itself is the whole difference between correctly flagging a
+/// past-the-ceiling argument as truncated and, as an earlier version of
+/// this function did, silently agreeing with itself that a value clamped to
+/// exactly the ceiling was never cut at all.
+template <typename T>
+[[nodiscard]] inline std::pair<const void*, std::size_t> rawBytesOf(const T& value) noexcept
+{
+    if constexpr (ByteView<T>) {
+        const Decayed<T> v(value);
+        return {v.data(), v.size()};
+    } else if constexpr (CStringLike<T>) {
+        const char* const ptr = value;
+        if (ptr == nullptr) {
+            return {ptr, 0u};
+        }
+        std::size_t len = 0;
+        while (len <= cArgCeiling && ptr[len] != '\0') {
+            ++len;
+        }
+        return {ptr, len};
+    } else if constexpr (StringViewLike<T>) {
+        const std::string_view sv{value};
+        return {sv.data(), sv.size()};
+    } else {
+        return {nullptr, 0u};
+    }
 }
 
 /// Upper-bound contribution of one argument: the fixed wire size for a fixed

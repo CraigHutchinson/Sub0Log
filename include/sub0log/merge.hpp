@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -69,7 +70,23 @@ private:
         std::vector<DecodedRecord> records_{};
         wire::SegmentHeader header_{};
     };
-    std::vector<Loaded> segments_{};
+    /// std::deque, not std::vector, and this is load-bearing rather than a
+    /// preference. Every DecodedRecord handed out by merged() carries a
+    /// `site_` pointer into its own segment's Decoder, so a container that
+    /// relocates its elements invalidates them. A vector only *happened* to
+    /// be safe: it relocates by move when the element is nothrow move
+    /// constructible and by copy otherwise, and a Decoder was the former
+    /// until it gained a std::deque member -- whose move constructor
+    /// libstdc++ does not mark noexcept. That one addition silently flipped
+    /// this vector from moving (which transfers hash nodes and keeps every
+    /// pointer valid) to copying (which builds new nodes and then destroys
+    /// the ones already pointed at). AddressSanitizer caught it as a
+    /// use-after-free in the two-process merge test.
+    ///
+    /// A deque never relocates an element it already holds, so the
+    /// invariant no longer depends on a property of Decoder that an
+    /// unrelated change can take away.
+    std::deque<Loaded> segments_{};
     Totals totals_{};
 };
 

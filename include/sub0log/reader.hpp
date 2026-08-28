@@ -19,6 +19,8 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -177,6 +179,20 @@ struct DecodedRecord {
  *  This cost an example author a segfault, so it is written down rather
  *  than left to be rediscovered.
  *
+ *  One argument's view is the documented exception, not a second rule: a
+ *  Bytes argument reassembled from a continuation chain (wire::RecordKind::
+ *  Continuation) cannot be a view into the image the way every other
+ *  argument is, because the chain's payload bytes are not contiguous there
+ *  -- each record's own 8-byte head word sits between one slice and the
+ *  next. Its bytes are copied once, joined, into continuationStorage_ (a
+ *  std::deque<std::string>, never a std::vector: appending an element must
+ *  not invalidate the address of one already handed out as a view). That
+ *  storage is owned by the Decoder exactly the way the site table is, so
+ *  the same lifetime rule above applies to it unchanged -- it is still true
+ *  that nothing survives past the image, or past this Decoder, whichever
+ *  goes first; a chained argument just also depends on the Decoder for one
+ *  additional reason (its bytes, not only its address, live nowhere else).
+ *
  *  Formatting is the one place text is made, and only on request: format()
  *  renders via std::format-style substitution of "{}" placeholders. A record
  *  whose definition is missing (pre-truncation damage) is counted
@@ -206,10 +222,15 @@ public:
     }
 
     /// Committed records this typed layer has no shape for yet -- the child
-    /// kinds, Continuation and Blob. They are intact on the wire and
-    /// readable through SegmentReader::visit; they are simply not Messages.
-    /// Counted rather than passed over in silence, so "my records are
-    /// missing" has an answer (R9.2).
+    /// kinds and Blob -- plus a Continuation record this layer *does* have a
+    /// shape for but found with no chain open to join (not immediately
+    /// after a Message or another Continuation whose own flags promised
+    /// one): every other Continuation is consumed while reassembling the
+    /// Message it belongs to and never reaches this counter. All of it is
+    /// intact on the wire and readable through SegmentReader::visit; it is
+    /// simply not, or in the orphan's case not usably, a Message. Counted
+    /// rather than passed over in silence, so "my records are missing" has
+    /// an answer (R9.2).
     [[nodiscard]] std::uint64_t skippedRecords() const noexcept
     {
         return skipped_;
@@ -243,6 +264,13 @@ private:
 
     std::unordered_map<std::uint64_t, DecodedSite> sites_{};
     std::unordered_map<std::uint32_t, std::string_view> subsystemNames_{};
+    /// Owns the joined bytes of every continuation-reassembled argument
+    /// (class comment, "One argument's view is the documented exception").
+    /// std::deque, not std::vector: decodeAll hands out a string_view onto
+    /// an element while more elements are still being appended, and only a
+    /// deque promises that push_back/emplace_back never moves one already
+    /// handed out.
+    std::deque<std::string> continuationStorage_{};
     std::uint64_t undecodable_{0};
     std::uint64_t skipped_{0};
 };
@@ -573,6 +601,17 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
         case wire::RecordKind::Message:
             ++messageCount;
             return;
+        // Continuation carries nothing pass one wants (no site, no
+        // subsystem, and it is not itself a Message to count): every one
+        // that legitimately belongs to a chain is consumed, and counted
+        // exactly once, in pass two while that Message is reassembled. An
+        // orphan is counted there too (skipped_), not here -- counting it
+        // in *both* passes would overstate skippedRecords() for a segment
+        // whose chains are perfectly intact. Named explicitly rather than
+        // folded into the fall-through below so that intent reads as a
+        // decision, not an oversight.
+        case wire::RecordKind::Continuation:
+            return;
         // Named rather than left to `default`, which would cover them
         // identically, because a consumer compiling this header with
         // -Wswitch-enum gets a warning out of it otherwise -- and a
@@ -595,7 +634,6 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
         // -Wcovered-switch-default essentially only inside -Weverything,
         // which clang itself advises against shipping with.
         case wire::RecordKind::Invalid:
-        case wire::RecordKind::Continuation:
         case wire::RecordKind::Blob:
         case wire::RecordKind::ChildOutput:
         case wire::RecordKind::ChildStart:
@@ -611,10 +649,107 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
 
     // Pass two: every Message becomes a DecodedRecord, or is counted
     // undecodable -- a missing site or a malformed argument never throws
-    // and never drops silently (R9.2).
-    reader.visit([&](const RecordView& v) {
-        if (v.head_.kind_ != wire::RecordKind::Message) {
+    // and never drops silently (R9.2). A Message whose flags promise a
+    // continuation chain (cFlagContinued) is held as `pending` rather than
+    // pushed immediately: the emit path always lays a chain down as the
+    // records immediately following its Message, in the same chunk
+    // (detail/emit.hpp), so those records are the very next ones visit()
+    // hands this callback. `damaged` tracks whether every slice seen so far
+    // for `pending` was a legitimate part of its chain; `pendingOwned`
+    // parallels pending->args_ and remembers which arguments have already
+    // switched from a view into the image to owned, joined storage.
+    std::optional<DecodedRecord> pending;
+    std::vector<std::string*> pendingOwned;
+    bool expectingContinuation = false;
+    bool damaged = false;
+
+    // Ends the current chain, if one is open: publishes `pending` or counts
+    // it undecodable, per `damaged`, and resets the chain state. Called both
+    // when a chain's last Continuation is consumed and when the stream ends
+    // with one still open (a truncated tail -- see the closing call below).
+    const auto finalizePending = [&]() {
+        if (!pending.has_value()) {
             return;
+        }
+        if (damaged) {
+            ++undecodable_;
+        } else {
+            result.push_back(std::move(*pending));
+        }
+        pending.reset();
+        pendingOwned.clear();
+        expectingContinuation = false;
+        damaged = false;
+    };
+
+    reader.visit([&](const RecordView& v) {
+        if (expectingContinuation) {
+            if (v.head_.kind_ != wire::RecordKind::Continuation) {
+                // The chain's promised next link never arrived -- a
+                // truncated tail, or a stream that was never a valid chain
+                // to begin with. `pending` is damaged either way; `v` was
+                // not consumed as part of it, so it still falls through to
+                // the ordinary per-kind handling below.
+                damaged = true;
+                finalizePending();
+            } else {
+                // The record's own flags carry cFlagContinued regardless of
+                // whether its payload is legible, so a chain that is
+                // otherwise malformed can still be walked to its true end
+                // without mistaking some later, unrelated record for part
+                // of it (docs/architecture.md's "commit last" gives the
+                // head word this much trust even when the payload cannot be).
+                const bool moreFollow = (v.head_.flags_ & wire::cFlagContinued) != 0u;
+                if (v.payload_.size() < sizeof(wire::ContinuationPayload)) {
+                    damaged = true;
+                } else {
+                    const auto prefix =
+                        wire::loadUnaligned<wire::ContinuationPayload>(v.payload_.data());
+                    const std::size_t idx = prefix.argIndex_;
+                    const bool validTarget =
+                        !damaged && idx < pendingOwned.size() && pending->site_ != nullptr
+                        && idx < pending->site_->argTypes_.size()
+                        && pending->site_->argTypes_[idx] == wire::TypeCode::Bytes;
+                    if (!validTarget) {
+                        damaged = true;
+                    } else {
+                        std::string*& owned = pendingOwned[idx];
+                        if (owned == nullptr) {
+                            // First slice for this argument: seed owned
+                            // storage from the bytes already decoded inline,
+                            // so the joined result reads as one contiguous
+                            // value regardless of how many slices follow.
+                            continuationStorage_.emplace_back(
+                                std::get<std::string_view>(pending->args_[idx]));
+                            owned = &continuationStorage_.back();
+                        }
+                        const std::span<const std::byte> tail =
+                            v.payload_.subspan(sizeof(wire::ContinuationPayload));
+                        if (!tail.empty()) {
+                            owned->append(reinterpret_cast<const char*>(tail.data()), tail.size());
+                        }
+                        pending->args_[idx] = std::string_view(*owned);
+                    }
+                }
+                if (moreFollow) {
+                    expectingContinuation = true;
+                } else {
+                    finalizePending();
+                }
+                return;
+            }
+        }
+
+        if (v.head_.kind_ == wire::RecordKind::Continuation) {
+            // Not expected: no Message (or prior Continuation) open a chain
+            // that this could belong to. Intact on the wire, just not
+            // attributable to anything -- the same "counted, not silent"
+            // treatment pass one gives every kind it does not decode.
+            ++skipped_;
+            return;
+        }
+        if (v.head_.kind_ != wire::RecordKind::Message) {
+            return; // everything else was already handled in pass one.
         }
         if (v.payload_.size() < sizeof(wire::MessagePayload)) {
             ++undecodable_;
@@ -672,8 +807,32 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
         rec.ownerThread_ = v.ownerThread_;
         rec.truncated_ = (v.head_.flags_ & wire::cFlagTruncated) != 0u;
         rec.args_ = std::move(args);
-        result.push_back(std::move(rec));
+
+        if ((v.head_.flags_ & wire::cFlagContinued) != 0u) {
+            // Held, not pushed: the chain this promises has not been seen
+            // yet, and a reader that pushed now would hand out a
+            // string_view that a later slice then silently extends under
+            // the caller's feet.
+            pending = std::move(rec);
+            pendingOwned.assign(pending->args_.size(), nullptr);
+            expectingContinuation = true;
+            damaged = false;
+        } else {
+            result.push_back(std::move(rec));
+        }
     });
+
+    // The stream ended with a chain still open: its Continuations were
+    // never there to begin with (or the segment stops mid-chain, which
+    // SegmentReader::visit already counted as unreadable/unwritten bytes on
+    // its own terms). Either way pending must not survive un-finalized --
+    // that is the "damaged segment where the continuations are missing"
+    // case, and it is counted here rather than silently dropped or left to
+    // whatever the caller does with a half-built Decoder next.
+    if (pending.has_value()) {
+        damaged = true;
+    }
+    finalizePending();
 
     return result;
 }

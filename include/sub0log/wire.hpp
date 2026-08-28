@@ -35,6 +35,22 @@ static_assert(std::endian::native == std::endian::little,
 /// improbability). Read as a u64 from offset 0 of a valid segment.
 inline constexpr std::uint64_t cMagic = 0x1E'47'4F'4C'30'42'55'53ull; // "SUB0LOG\x1E"
 
+/// Still 1 with continuation chains added, and that is a decision rather
+/// than an omission. Version gates *everything*: a decoder that does not
+/// recognise it rejects the whole segment (SegmentError::UnknownVersion),
+/// which is the right answer only when the older reader would otherwise be
+/// misled. It would not be here. A decoder built before chains existed
+/// reads a chained segment and gets every Message, with an over-cap
+/// argument cut to its first cInlineBytesCap bytes -- exactly what that
+/// same decoder would have got from that same call site before chains
+/// existed -- and a non-zero Decoder::skippedRecords() telling it there
+/// were committed records of a shape it has no reading for. Less data,
+/// with the shortfall counted; not wrong data, and not a refused file.
+///
+/// Bumping would trade that for rejecting the segment outright, which is a
+/// worse answer to "my old tool met a new producer" and the opposite of
+/// what R3.3 asks for everywhere else in this format: read what you can,
+/// count what you cannot.
 inline constexpr std::uint16_t cFormatVersion = 1u;
 
 /// Head-word commit tag. Chosen to be non-zero in every byte so a torn
@@ -51,9 +67,34 @@ inline constexpr std::uint32_t cRecordAlign = 8u;
 /// Inline byte/string payload cap before truncation (per argument).
 inline constexpr std::uint16_t cInlineBytesCap = 512u;
 
-/// Continuation-chain cap: the ceiling on what one call can cost (see
-/// docs/record-model.md). Reserved in v1; the writer truncates instead.
-inline constexpr std::uint8_t cMaxContinuations = 4u;
+/// Continuation-chain cap, **per overflowing argument**: how many further
+/// records one Bytes-shaped argument may spill into once it does not fit
+/// inline (docs/record-model.md, "Continuation records, for the medium
+/// case"). This is the ceiling docs/record-model.md asks for --
+/// "capping the chain puts a ceiling on what one log call can cost the
+/// calling thread" -- and it is deliberately per-argument rather than
+/// per-call: a call site's argument count is fixed at compile time, so
+/// bounding each argument independently already bounds the whole call, and
+/// it means one long argument's chain length never depends on how many
+/// *other* arguments the same call happens to carry.
+///
+/// Seven, so that an argument reaches cInlineBytesCap * (1 +
+/// cMaxContinuations) = 4096 bytes: PATH_MAX on Linux exactly, which is the
+/// number to hit when record-model.md says "File paths are what this exists
+/// for". An earlier value of four was chosen with the claim that its 2560
+/// bytes was "past PATH_MAX (4096)", which is simply false -- it is well
+/// short of it, and would have cut precisely the long paths this mechanism
+/// is for. The arithmetic is spelled out here so the next person to change
+/// the cap checks it rather than inheriting it.
+///
+/// The cost is at most seven further chunk reservations on the calling
+/// thread, for the rare call whose argument is that long; an argument under
+/// cInlineBytesCap reserves none of them, and a call site with no
+/// Bytes-shaped argument at all never reaches this path (detail/emit.hpp
+/// routes on cHasByteArg at compile time). Past the ceiling: truncated,
+/// with the cut recorded in cFlagTruncated exactly as an over-cap argument
+/// always was (R9.2, visible not silent).
+inline constexpr std::uint8_t cMaxContinuations = 7u;
 
 // ---------------------------------------------------------------------------
 // Record kinds and flags
@@ -62,7 +103,8 @@ enum class RecordKind : std::uint8_t {
     Invalid = 0,       ///< Never written; a zero head word is unwritten space.
     Message = 1,       ///< Varying half of a call site: time, correlation, args.
     SiteDefinition = 2,///< Constant half; precedes the site's first Message.
-    Continuation = 3,  ///< Bounded spill of the preceding record's payload.
+    Continuation = 3,  ///< Bounded spill of one argument of the Message
+                       ///< that opened this chain (see ContinuationPayload).
     Blob = 4,          ///< Reserved: cold bulk payloads (v2).
     ChildOutput = 5,   ///< One captured line of a child's stdout/stderr (R5.5).
     ChildStart = 6,    ///< A third-party child was spawned: command, correlation.
@@ -73,7 +115,9 @@ enum class RecordKind : std::uint8_t {
 
 enum RecordFlags : std::uint8_t {
     cFlagTruncated = 0x01, ///< A payload was cut at a cap; visible, not silent.
-    cFlagContinued = 0x02, ///< A Continuation record follows this one.
+    cFlagContinued = 0x02, ///< The next record (Message or Continuation) is
+                           ///< a Continuation still part of this chain --
+                           ///< see wire::ContinuationPayload.
 };
 
 // ---------------------------------------------------------------------------
@@ -207,6 +251,41 @@ struct MessagePayload {
 };
 static_assert(std::is_trivially_copyable_v<MessagePayload>);
 static_assert(sizeof(MessagePayload) == 24u);
+
+/// One slice of an argument's bytes that did not fit its Message record
+/// inline (docs/record-model.md, "Continuation records, for the medium
+/// case"). Physically the record immediately after the one it continues,
+/// in the same chunk: the producer never spreads a chain across chunks
+/// (detail/emit.hpp), so a reader is never asked to go looking for one --
+/// it either follows straight on from cFlagContinued, or the chain does
+/// not exist.
+///
+/// The chain is self-terminating rather than self-counting: cFlagContinued
+/// on *this* record's own head word means "another Continuation
+/// immediately follows, still part of the same chain"; its absence ends
+/// the chain. This is the same bit the opening Message uses for "at least
+/// one Continuation follows", read the same way at every link, so there is
+/// no separate part-count to keep in step with it and no way for the
+/// count and the records to disagree.
+struct ContinuationPayload {
+    std::uint64_t siteId_;   ///< The originating Message's site. Not needed
+                              ///< to walk the chain (offset order plus the
+                              ///< flag already does that) -- this is
+                              ///< redundant, on purpose, so a record reached
+                              ///< some other way still names what it belongs
+                              ///< to, the same role siteId_ plays on Message.
+    std::uint8_t argIndex_;  ///< Which of the site's declared arguments
+                              ///< (0-based, SiteDefinition order) this
+                              ///< slice extends.
+    std::uint8_t reserved0_;
+    std::uint16_t reserved1_;
+    std::uint32_t reserved2_; ///< Explicit tail padding; keeps the size honest.
+    // Tail: the next slice of the argument's bytes -- no length prefix, the
+    // record's own payloadBytes_ already bounds it (ChildOutputPayload's
+    // tail is the same shape for the same reason).
+};
+static_assert(std::is_trivially_copyable_v<ContinuationPayload>);
+static_assert(sizeof(ContinuationPayload) == 16u);
 
 // Child capture (R5.5): a non-cooperating child's output becomes records
 // attributed to that child. The three payloads join on childId_ -- a

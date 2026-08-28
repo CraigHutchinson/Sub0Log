@@ -36,15 +36,22 @@ static_assert(std::atomic_ref<std::uint64_t>::is_always_lock_free,
  *   3. commit(head): release-store of head.pack() into the slot. The record
  *      exists, in kernel-owned memory, when this store completes (R3.1).
  *
- *  Sequence ownership: the caller passes commit() a head with sequence_
- *  unset (0); commit() is the sole writer of sequence_ and is what
- *  increments the per-chunk counter. This works because a ChunkWriter is
- *  used by exactly one thread and reserve()/commit() are always paired
- *  before the next reserve() -- there is never a second reservation in
- *  flight whose commit could land out of order, so "reserve order" and
- *  "commit order" are the same order and either could have been the owner;
- *  commit was chosen because it is the point closest to the write actually
- *  becoming visible to a reader.
+ *  Sequence ownership: reserve() is the sole writer of the per-chunk
+ *  sequence counter, and stamps the value it hands out into the
+ *  Reservation; commit() only copies that value into the head word it
+ *  stores. Sequence order must track *offset* order, not *commit* order --
+ *  the record's position in the chunk is what a reader would trust it for,
+ *  the way a torn-write check already trusts payloadBytes_ against the
+ *  chunk it was found in -- and a continuation chain is exactly the case
+ *  where those two orders diverge: the Message reserves before its
+ *  Continuations (it is written first) but must commit after them (a
+ *  reader must never observe a chain with its head published and its tail
+ *  still missing, so the tail commits first). Assigning at commit time, as
+ *  this class used to, would have given the Message a *higher* sequence
+ *  than the continuations physically ahead of it in the chunk -- nothing
+ *  reads that field today, but the property "sequence increases with
+ *  offset" would have silently stopped holding for exactly the one record
+ *  kind that needs several outstanding reservations at once (detail/emit.hpp).
  */
 class ChunkWriter {
 public:
@@ -62,13 +69,18 @@ public:
     struct Reservation {
         std::byte* payload_{nullptr};
         std::byte* headWord_{nullptr};
+        /// Assigned by reserve(), in offset order; commit() copies it
+        /// verbatim rather than assigning its own (see the class comment,
+        /// "Sequence ownership").
+        std::uint16_t sequence_{0};
         [[nodiscard]] bool valid() const noexcept { return headWord_ != nullptr; }
     };
 
     [[nodiscard]] Reservation reserve(std::uint32_t payloadBytes) noexcept;
 
     /// Release-store of the packed head word; the payload must be fully
-    /// written first. Increments the per-chunk sequence.
+    /// written first. Stamps head.sequence_ from the Reservation (assigned
+    /// back in reserve(), not here -- see the class comment).
     void commit(const Reservation& slot, wire::RecordHead head) noexcept;
 
 private:
@@ -109,13 +121,14 @@ inline ChunkWriter::ChunkWriter(std::span<std::byte> body) noexcept
     std::byte* const headWord = body_.data() + offset_;
     std::byte* const payload = headWord + 8u;
     offset_ += total;
-    return Reservation{payload, headWord};
+    const std::uint16_t sequence = sequence_;
+    ++sequence_;
+    return Reservation{payload, headWord, sequence};
 }
 
 inline void ChunkWriter::commit(const Reservation& slot, wire::RecordHead head) noexcept
 {
-    head.sequence_ = sequence_;
-    ++sequence_;
+    head.sequence_ = slot.sequence_;
     // The head-word slot is 8-byte aligned by construction (reserve() only
     // hands out slots at 8-aligned offsets within an 8-aligned chunk body).
     // atomic_ref over that uint64_t-sized, uint64_t-aligned storage is the
