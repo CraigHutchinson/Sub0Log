@@ -97,10 +97,14 @@ file, sizes it up front (`segmentBytes_`, 8 MiB by default) and maps the
 whole thing -- no growth, no remap, no wraparound afterward. That's part of
 what makes the hard-kill guarantee above unconditional: nothing about
 staying alive involves resizing or relocating the mapping while it's being
-written to. Every call site claims a chunk (64 KiB by default) out of that
-fixed space with one atomic; once the space is gone, later records are
-dropped and counted rather than blocked or grown into ("Operating it"
-below covers what that means for sizing a real service).
+written to. A *thread*, not a call site, claims a chunk (64 KiB by default)
+out of that fixed space with one atomic -- once when it first logs, again
+whenever the one it's holding fills up -- and every record from every call
+site that thread executes lands in whichever chunk it currently holds. So
+it's write volume and thread count that exhaust a segment, not the number
+of call sites in your code: once the fixed chunk supply runs out, later
+records are dropped and counted rather than blocked or grown into
+("Operating it" below covers what that means for sizing a real service).
 
 A separate `Decoder`/`Merger` turns that back into text (or a value you can
 assert on), on whatever thread and in whatever process wants it. Several
