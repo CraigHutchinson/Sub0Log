@@ -83,6 +83,63 @@ foreach(example IN LISTS SUB0LOG_EXAMPLES)
 endforeach()
 
 # ---------------------------------------------------------------------------
+# 0_workedexample: the flagship. Deliberately outside SUB0LOG_EXAMPLES (it is
+# not a rung on the ladder, and it is the one example in this directory that
+# needs a third-party dependency, FTXUI, for its terminal UI) -- wired up
+# here the same way 12_plugin_abi is its own block below rather than forced
+# into the loop above.
+#
+# CPM.cmake is normally included once by the root CMakeLists.txt, but only
+# when SUB0LOG_BUILD_TESTING or SUB0LOG_BUILD_BENCHMARKS is also on (see its
+# own comment); a build with only SUB0LOG_BUILD_EXAMPLES=ON would otherwise
+# reach this file with CPMAddPackage undefined. include()-ing CPM.cmake a
+# second time is harmless (its own top-of-file guard against that is the
+# first thing it does), so this fetches FTXUI only when this one target is
+# actually being configured, without assuming what else the caller turned on.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CPM.cmake")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CPM.cmake")
+
+    CPMAddPackage(
+        NAME ftxui
+        GITHUB_REPOSITORY ArthurSonzogni/FTXUI
+        GIT_TAG v5.0.0
+        OPTIONS "FTXUI_BUILD_EXAMPLES OFF" "FTXUI_BUILD_TESTS OFF" "FTXUI_ENABLE_INSTALL OFF")
+
+    add_executable(sub0log_example_0_workedexample "${CMAKE_CURRENT_SOURCE_DIR}/0_workedexample.cpp")
+    target_link_libraries(sub0log_example_0_workedexample PRIVATE
+        Sub0Log::Sub0Log
+        Threads::Threads
+        ftxui::screen
+        ftxui::dom
+        ftxui::component)
+    set_target_properties(sub0log_example_0_workedexample PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF)
+    if(MSVC)
+        target_compile_options(sub0log_example_0_workedexample PRIVATE /W4)
+    else()
+        target_compile_options(sub0log_example_0_workedexample PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    if(SUB0LOG_BUILD_TESTING)
+        # No --smoke needed to make this ctest-safe: ctest runs every test
+        # with no controlling terminal by default, and 0_workedexample.cpp's
+        # own isatty()/_isatty() check already routes that straight to its
+        # headless path (the file's own comment explains why both checks
+        # exist regardless). Passed anyway, so the test stays correct even
+        # if ctest's own tty behaviour ever changed underneath it.
+        add_test(NAME "example::0_workedexample"
+                 COMMAND sub0log_example_0_workedexample --smoke)
+        set_tests_properties("example::0_workedexample" PROPERTIES LABELS "example")
+    endif()
+else()
+    message(WARNING
+        "examples/CMakeLists.txt: cmake/CPM.cmake not found -- skipping "
+        "sub0log_example_0_workedexample (needs FTXUI via CPM).")
+endif()
+
+# ---------------------------------------------------------------------------
 # 12_plugin_abi: a host and a plugin, because that is the shape R4 actually
 # has -- a plugin that could include <sub0log/log.hpp> would not be
 # demonstrating anything (docs/adoption-friction.md 2.3 is what a plugin

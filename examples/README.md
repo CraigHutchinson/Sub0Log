@@ -7,6 +7,15 @@ cap. Each example is a single self-contained `.cpp` with its own `main()`
 (one exception, noted where it appears); each prints readable output
 explaining what it just did, and exits `0` on success.
 
+`0_workedexample.cpp` sits outside that numbering on purpose: it is the
+showcase rather than a rung, an interactive terminal dashboard (FTXUI) that
+puts several of the ladder's mechanisms on screen *at once and live* --
+scalable in-process thread producers next to on-demand child-process
+producers, all consolidated into one reader's view of one segment, with the
+counters that say whether any of it is being lost. See its own row below and
+the file's header comment for what it demonstrates and why it looks
+different from the rest of this directory.
+
 ## A note on the comments in this directory
 
 Library code comments explain *why* to a maintainer who already knows the
@@ -29,6 +38,7 @@ retires an example.
 
 | Capability | Requirement(s) | Example(s) | Notes |
 |---|---|---|---|
+| In-process threads and child processes, consolidated into one live view, at once | R2.1, R5.5, R5.6, R6.1, R9.1-R9.3 | 0 | the flagship; interactive (FTXUI) with a ctest-safe headless path |
 | Typed records, no formatting at the call site | R1.1, R2.1 | 01 | |
 | Disabled-call-site cost; one subsystem turned up without the rest | R1.4, R9.3 | 09 | |
 | Consumer-owned subsystems, names carried in the segment | R2.2, R2.3 | 02 | `SubsystemDefinition` record |
@@ -88,6 +98,7 @@ than a terminal -- this call is worth revisiting.
 
 | # | File | What it teaches | Requirements |
 |---|------|------------------|--------------|
+| 0 | `0_workedexample.cpp` | The flagship: an interactive FTXUI terminal dashboard consolidating live logging from a scalable number of in-process thread producers *and* on-demand child-process producers into one reader's view of one segment -- every counter this library exposes about its own health, together, updating in real time. `+`/`-` add or remove a thread producer; `c` spawns one more bounded, self-limiting child-process producer (there is no `ChildProcess::terminate()`, so a running one is never killed, only outlived); `q` quits. Detects a non-interactive terminal (or `--smoke`) and runs a short, fixed-scale headless pass instead, printing a plain-text summary -- the path `ctest -L example` actually exercises. | R2.1, R5.5, R5.6, R6.1, R9.1-R9.3 |
 | 01 | `01_hello.cpp` | Create a `Logger`, log a few typed records, read them back with `SegmentReader` + `Decoder`. Nothing formats at the call site. | R1, R2.1 |
 | 02 | `02_subsystems.cpp` | The consumer, not the library, owns the subsystem vocabulary -- and can declare its names into the segment so a recovered file reads "Storage" rather than "subsystem 1". Filtering ("Storage records at Warning or above") is field comparisons, never a text search. | R2.2, R2.3 |
 | 03 | `03_correlation.cpp` | `CorrelationScope` on several threads; joining an activity's records back together is an equality test on `correlationId_`. | R6.1, R6.2 |
@@ -144,6 +155,15 @@ the same way any downstream consumer would -- except the plugin target
 itself, which links nothing of the library at all (R4.1/R4.2); that is the
 whole point of 12, and its own file comments explain why.
 
+`sub0log_example_0_workedexample` is the one exception to "links only
+`Sub0Log::Sub0Log`": its terminal UI is built on
+[FTXUI](https://github.com/ArthurSonzogni/FTXUI), fetched via CPM the first
+time this target is configured (`examples/CMakeLists.txt`) and linked
+alongside `Sub0Log::Sub0Log` as `ftxui::screen`, `ftxui::dom`, and
+`ftxui::component`. That is a real network dependency the rest of this
+directory does not have -- every other example only needs the library
+itself and, for 10, a local `git` binary.
+
 ## Running
 
 Run one directly:
@@ -161,7 +181,21 @@ ctest --test-dir build -L example --output-on-failure
 
 Every example is self-contained: it creates its own scratch directory under
 the system temp path, cleans it up before exiting, and finishes in a few
-seconds with no arguments and no network access required (10 spawns `git`
-locally against a throwaway repository it also creates and deletes; it
-never touches the Sub0Log checkout it happens to be sitting in, and never
-calls `clone`/`fetch`/`push`).
+seconds with no arguments and no network access required at run time (10
+spawns `git` locally against a throwaway repository it also creates and
+deletes; it never touches the Sub0Log checkout it happens to be sitting in,
+and never calls `clone`/`fetch`/`push`).
+
+`0_workedexample` is interactive by design, which is exactly why it does not
+simply join the ladder above: run without arguments at a real terminal, it
+opens the full-screen dashboard described in its own row in the table above
+and stays there until `q`. Run any other way -- piped, redirected, under
+`ctest`, or with `--smoke` explicitly -- it detects the absence of a
+controlling terminal and instead runs the identical producer and reader
+machinery headless, at a small fixed scale, for about two seconds, then
+prints a plain-text summary and exits `0`. That headless path is what makes
+it safe in the `ctest -L example` run above; try the real thing directly:
+
+```sh
+./build/examples/sub0log_example_0_workedexample
+```

@@ -196,7 +196,11 @@ where the comparisons live; this file doesn't make them.
 design exists for: a fatal record written from inside a signal handler and
 recovered after the process is killed, two processes merged into one ordered
 stream, a third-party tool's output captured and intercepted, and a console
-tailer reading a segment while it is still being written.
+tailer reading a segment while it is still being written. `0_workedexample`
+is the interactive showcase: a terminal dashboard (FTXUI) consolidating a
+scalable number of in-process thread producers and on-demand child-process
+producers into one live view of one segment, with every health counter the
+library exposes on screen at once.
 
 ```sh
 cmake -S . -B build -DSUB0LOG_BUILD_EXAMPLES=ON && cmake --build build
