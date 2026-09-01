@@ -98,7 +98,7 @@ that would put your code on the emit path. `examples/09_operating.cpp` is the
 whole story, runnable.
 
 **Including it is not free.** `<sub0log/log.hpp>` costs about 420 ms per
-translation unit over an empty one on GCC 13 at `-O2`, roughly 220 ms more
+translation unit over an empty one on GCC 13 at `-O2`, roughly 160 ms more
 than a TU that already includes `<string>` and `<vector>`. That is the price
 of header-only, and it is worth knowing before the include goes into a widely
 included header. `<sub0log/reader.hpp>` costs another 220 ms and belongs in

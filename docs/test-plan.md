@@ -174,6 +174,11 @@ numbers, and a noisy gate is one people learn to ignore.
   both direct `fork()` callers) are excluded there for the same reason.
 - The stress harness and the examples run on Linux in CI only; neither has
   been exercised on macOS or Windows runners.
-- Continuation-chain and Blob record kinds: format reserved, no writer yet,
-  so no tests beyond the reader skipping them.
+- Blob record kind: format reserved, deliberately not built
+  (`docs/record-model.md`, "A blob, for the cold bulk case" -- continuation
+  chains already cover the case a blob would have); no tests beyond the
+  reader skipping it. Continuation chains themselves are not a gap any more
+  -- they shipped in v2 and are the R2.1 row above (`continuation.test.cpp`);
+  this bullet used to cover both together and was not split when the writer
+  landed.
 - Power-loss durability: out of scope by design (`hard-kill.md`), not a gap.

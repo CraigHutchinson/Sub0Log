@@ -962,3 +962,309 @@ corner regardless. The two corners named above are that same shape of
 exception: genuinely unopened, and worth one more round specifically
 because of it. A round 5 after that would need a new axis, not a new
 corner, to be worth running.
+
+## Round 4
+
+Ground round 3 named and left explicitly unopened: root `README.md` and
+`REQUIREMENTS.md`, read end to end as primary subjects rather than cited from.
+`README.md`'s Status section had already been caught and fixed before this
+round started (spotted by a two-minute spot-check, not by this round's own
+work -- noted so the fix is not claimed here); this round verified that fix
+and then read the rest of both files, plus a targeted cross-check of
+`docs/test-plan.md`'s traceability table against `REQUIREMENTS.md`'s R-numbers,
+plus a cross-cutting spot-check of ten factual claims split across
+`docs/api-review.md` and `docs/adoption-friction.md`.
+
+### 1. `REQUIREMENTS.md`'s "Open questions" answered themselves out of the document nearly at project inception, and nobody removed the question
+
+**Bug (stale since before round 1 existed), applied.**
+
+`REQUIREMENTS.md` closed with three open questions: how a descriptor is
+addressed, what chunk size should be, and whether the decoder ships as a
+library, a CLI, or both. `docs/architecture.md` has carried a section titled,
+verbatim, **"Answers to the open questions in REQUIREMENTS.md"** -- answering
+all three by name -- since `70b9de2`, the *very first* commit that created
+`architecture.md`. `git log -- REQUIREMENTS.md` shows its last touch was
+`517b176`, itself several commits *after* `70b9de2`. So for the entire time
+this file has existed in its current form, one file over has openly stated
+the answers to the exact questions this one still poses as unresolved --
+not a drift introduced by a later change, but a cross-reference that was
+already wrong the day both files existed side by side, and stayed that way
+through three rounds of this series because none of them opened
+`REQUIREMENTS.md` as a target. This is the same failure mode round 2 named
+("a file nobody's round has opened since a dependency changed underneath it")
+taken to its limit: here the file was never opened at all, by any round,
+against a dependency that was wrong from day one rather than one that went
+wrong later.
+
+The three answers, cross-checked against the current tree rather than
+copied from `architecture.md` on trust:
+- **Descriptor addressing.** By pointer (`wire::Message::siteId_`), scoped to
+  the segment by its own `SiteDefinition` record -- confirmed at
+  `include/sub0log/wire.hpp:255` and `include/sub0log/site.hpp`.
+- **Chunk size.** A per-segment header value, `wire::cDefaultChunkBytes`,
+  confirmed at `include/sub0log/wire.hpp:62` to be `64u * 1024u` -- the same
+  64 KiB `architecture.md` names, configurable per `Logger` via
+  `Options::segment_` (`SegmentOptions`), not by format.
+- **Decoder shape.** Both, and both ship: `Decoder`/`Merger` are the library
+  (`reader.hpp`, `merge.hpp`), `sub0log-cat` is the CLI built on top of them
+  (`tools/sub0log_cat.cpp`), on by default (`SUB0LOG_BUILD_TOOLS` defaults
+  `ON` in the root `CMakeLists.txt`).
+
+**Applied:** the section renamed "Open questions, resolved", with each
+question kept (not deleted -- the project's own stated practice, per
+`docs/README.md`'s "On the corrections", is to keep a superseded claim with
+its correction rather than tidy it away, and an open question a future
+reader might otherwise re-ask deserves the same treatment) and answered in
+place, each answer citing where it actually lives in the tree rather than
+only citing `architecture.md`. Verified against `include/sub0log/wire.hpp`,
+`include/sub0log/site.hpp`, `CMakeLists.txt`, and `tools/sub0log_cat.cpp`
+directly, not merely against `architecture.md`'s own telling of itself.
+
+### 2. `REQUIREMENTS.md` R1.2 named the rejected alternative and omitted the shipped mechanism
+
+**Bug (stale, same document, same root cause as #1), applied.**
+
+R1.2's own text: "The strategy for oversized payloads is truncation or a
+separate blob channel." `docs/record-model.md` ("A blob, for the cold bulk
+case") records the actual decision, made in commit `44501ea` ("Decide
+against the blob channel, and say why rather than defer it"): a blob channel
+was considered and rejected, because continuation chains -- built later in
+the same file's history, `5d24334` -- already cover everything a blob would
+have, without a second variable-length mechanism. `wire.hpp`'s own comment on
+`RecordKind::Blob` agrees: "Reserved, and reviewed in v2 rather than built."
+So R1.2 named, as one of exactly two live strategies, a mechanism that was
+explicitly decided against and never built, and did not name the one that
+was: a bounded chain of further records for the medium case, with truncation
+only past the chain's ceiling. Same document, same failure as finding 1 --
+untouched since before continuation chains shipped (`REQUIREMENTS.md`'s last
+commit, `517b176`, predates `5d24334`).
+
+**Applied:** R1.2 now names the chain mechanism as the medium-case strategy
+and truncation as the ceiling-case one, with a parenthetical naming the blob
+channel as the alternative that was considered and citing
+`docs/record-model.md` for the decision -- so a reader who goes looking for
+"blob channel" from the old wording still finds where that thread went,
+rather than the phrase silently disappearing.
+
+### 3. `docs/test-plan.md`'s "Known gaps" contradicted its own traceability table two sections above it
+
+**Bug (self-contradiction within one file), applied.**
+
+The traceability table's `R2.1 continuation chains` row cites
+`continuation.test.cpp` by name and describes four distinct cases it covers
+(round-trip either side of the inline cap, the ceiling cut, mixed lengths,
+a starved chunk). The same document's "Known gaps" section, three headings
+later, still said: "Continuation-chain and Blob record kinds: format
+reserved, no writer yet, so no tests beyond the reader skipping them." Both
+cannot be true in the same file. `tests/integration/continuation.test.cpp`
+confirmed to hold four `TEST_CASE`s, settling which half is right. Blob
+alone is still an accurate gap (reserved, deliberately not built, per
+finding 2 above); continuation chains are not. This was not touched by
+round 1's pass over this same document (round 1's applied list names "the
+'What runs where' table... the child-capture exclusion count, and both later
+restatements of the 53/41 totals" -- never this bullet), so it sat
+self-contradicting since continuation chains shipped without anyone
+reconciling this specific sentence against the table one page up.
+
+**Applied:** the bullet split -- Blob kept as the real, still-open gap with
+a citation to `record-model.md`'s decision; continuation chains removed from
+the gap list with a note explaining the bullet used to cover both and was
+not revisited when the writer landed.
+
+### 4. Root `README.md`'s compile-cost paragraph carried a subtraction error, sourced from `adoption-friction.md`'s own table
+
+**Bug (arithmetic), applied in `README.md`; reported, not applied, in
+`adoption-friction.md`.**
+
+`adoption-friction.md` §1.3's own measured table: `int main(){}` 16 ms,
+`<string>`+`<vector>` 282 ms, `<sub0log/log.hpp>` 439 ms,
+`+ <sub0log/reader.hpp>` 659 ms. Its prose reads the table as "423 ms over
+baseline" (`439 - 16`, correct) "and about 220 ms over what a TU including
+`<string>` and `<vector>` already pays" -- but `439 - 282 = 157`, not 220.
+220 is the *next* line's number: `reader.hpp`'s own increment over
+`log.hpp` (`659 - 439 = 220`, correct on its own). The two subtractions
+share a result by coincidence of which two tests get compared, not because
+157 rounds to 220 under any convention this document uses elsewhere (423
+rounds to "about 420" two words earlier in the same sentence) -- this reads
+as the reader.hpp figure copied one line up by mistake, at the point this
+section was first written (`git log -p` shows the table and the sentence
+landing in the same commit, so this was never a doc-drift, it was wrong from
+the first draft). Re-measured independently in this environment (different
+machine, so not a re-derivation of the original number, but a sanity check
+on the *shape* of the claim): `log.hpp`'s overhead over `<string>`+`<vector>`
+was consistently and substantially smaller than `reader.hpp`'s further
+overhead over `log.hpp`, the same relative ordering the corrected 157 (not
+220) implies.
+
+Root `README.md`'s "Operating it" section quotes the same "roughly 220 ms
+more than a TU that already includes `<string>` and `<vector>`" figure
+verbatim, inheriting the error.
+
+**Applied (README.md only):** "roughly 220 ms" -> "roughly 160 ms" (157
+rounded to the nearest ten, matching this same sentence's own rounding of
+423 to "about 420"). **Not applied** in `adoption-friction.md`: out of this
+round's editing scope by the brief's own constraint; flagged here for
+whoever owns that file to fix at the source, since `README.md`'s copy will
+drift from it again the moment someone "corrects" `README.md` back into
+agreement with an unfixed origin.
+
+## What was checked and found sound
+
+**Root `README.md`, section by section, beyond the Status fix already in
+place and finding 4 above.** The code example
+(`sub0log_debug(Storage, "read {} at {} for {} bytes", blobId, offset,
+length);`) compiles as shown against the current tree -- verified by actually
+compiling it standalone (`g++ -std=c++23 -I include`, a `SubsystemId`
+declared for `Storage` the way `examples/01_hello.cpp`'s `cApp` is, since
+the snippet is a header excerpt rather than a full program and was never
+claiming to be one). `Examples`' prose (a crash-and-recover example, a
+multi-process merge, a captured/intercepted third-party tool, a live
+tailer) matches examples 04/05/06/07 without claiming a total count that
+could go stale against the 12 the ladder now has. `Reading records`' two
+`sub0log-cat` command lines (`-l error -s 3 --follow`) match
+`tools/sub0log_cat.cpp`'s actual flag table (`-l`/`--level`,
+`-s`/`--subsystem`, `-f`/`--follow`) exactly, including that `error` and a
+bare `3` both parse. `SUB0LOG_BUILD_EXAMPLES`/`SUB0LOG_BUILD_TOOLS`'s
+default states (`OFF`/`ON`) match the snippet and the "ships... built by
+default" prose. `Why` and `Background` make no claim this round's checks
+touch (`Background`'s "two of those files record a claim that was wrong
+first" is `docs/README.md`'s own "On the corrections" section, word for
+word).
+
+**`REQUIREMENTS.md`, every remaining requirement, beyond findings 1-2.** R4's
+three sub-clauses read as forward requirements ("must be able to") with no
+tense claiming or implying the ABI is unbuilt -- confirmed neutral, not
+merely assumed so, since the brief specifically asked not to assume it. R9.3
+was checked word for word against `sub0log::unboundEmits()`'s current doc
+comment (`instance.hpp:94-128`): "discoverable at runtime, by the same kind
+of mechanism that makes a drop discoverable" matches a retrievable relaxed
+counter exactly as `unboundEmits()` is; "everything that fails before that
+point" matches the doc comment's own three-way enumeration (forked child,
+hidden-visibility plugin, pre-bind window). R5.6's "a suppressed line is
+counted, never silently gone" checked against `child.hpp`'s
+`InterceptAction::Suppress` path (`suppressedLines_.fetch_add`, line 425) --
+accurate. "Explicitly out of scope"'s rotation-policy exclusion does not
+conflict with segment rollover sitting on the v3 roadmap (`architecture.md`
+line 367) -- rollover is a different, still-unbuilt mechanism, not a form of
+the rotation policy this section rules out, and nothing here claims
+otherwise.
+
+**`docs/test-plan.md`'s traceability table, every R-number.** Every clause
+`REQUIREMENTS.md` defines (R1.1 through R9.3, all thirty-one) has at least
+one row; none is missing. R4's row covers R4.1 and R4.3 by name
+(`abi.test.cpp`'s dlopen/emit/dlclose/decode round trip) without a
+standalone line for R4.2 (dependency-free C ABI) -- not flagged as a gap,
+since `sub0log_abi.h` being a 70-line, JSON-parser-free, allocator-free C
+header is what R4.2 asks for and the row's own description of what
+`abi.test.cpp` links ("nothing of ours") is the closest thing to a test R4.2
+admits of. Beyond the one correction in finding 3, no other row was found
+inaccurate against the source it cites.
+
+**Ten factual claims, split across `docs/api-review.md` and
+`docs/adoption-friction.md`, checked against the current tree (report only,
+per this round's constraint -- neither file was edited):**
+
+1. `detail::SegmentOptions`/`detail::PlatformError` moved to `sub0log`,
+   aliases left in `detail` -- confirmed (`segment.hpp:26-36`,
+   `detail/platform.hpp:54-82`; the public accessors still *spell*
+   `detail::PlatformError`, which is the alias, exactly as the doc's own
+   "thirty-odd references read exactly as they did" describes, not a
+   contradiction).
+2. The three counter snapshots -- `Logger::Stats` moved from namespace scope
+   into the class, `CaptureStats`/`Totals` kept nested and unrenamed --
+   confirmed (`instance.hpp:316`, `child.hpp:230`, `merge.hpp:41`).
+3. `ChildProcess::wait()` is `[[nodiscard]]`, and the one internal caller
+   that discards it says `(void)wait();` with a comment -- confirmed
+   (`child.hpp:228`, `child.hpp:522`).
+4. `Logger::segmentPath()` carries a one-line lifetime doc comment -- confirmed
+   (`instance.hpp:334-337`).
+5. `ChildOptions`'s adjacent same-typed fields carry a swap-hazard comment --
+   confirmed (`child.hpp:77-78`).
+6. `SegmentReader::visit()` stays non-`[[nodiscard]]`, and its return is
+   genuinely redundant with `unreadableBytes()` -- confirmed
+   (`reader.hpp:88, 96, 109`).
+7. The decoder's record-kind `switch` lists every enumerator and keeps
+   `default` -- confirmed (`reader.hpp:661-666`).
+8. A pointer zero-extends to eight bytes on the wire on every target --
+   confirmed (`encode.hpp:323-327`).
+9. `Logger::detachedByFork()` exists beside `unboundEmits()` -- confirmed
+   (`instance.hpp:190`).
+10. The compile-cost table's arithmetic -- checked and found broken; finding
+    4 above.
+
+Nine of ten held exactly as stated; the tenth is finding 4. No claim
+examined here touched anything the atomic_ref fix, the announce-generation
+rename, or the Stats/SegmentOptions/PlatformError moves changed underneath
+it without the doc catching up -- those three specific changes were the
+ones this round's brief flagged as the likeliest to have broken something in
+these two files, and none of them did.
+
+## Convergence verdict
+
+Not fully converged -- one narrow corner left, named below, with a specific
+reason it is not just more of the same sweep.
+
+**The estimates were right about the yield curve, wrong about where the
+next real material was.** Round 2 and round 3 both predicted a thinning
+return from re-sweeping already-opened ground, and both were right about
+that; neither round's yield came from re-reading anything a prior round had
+covered. Round 3 predicted the two never-opened corners -- `README.md` and
+`REQUIREMENTS.md` -- were "worth one more round specifically because" they
+were genuinely unopened, distinct from ground that was merely thin. That
+prediction was also right, more right than round 3 could have known: this
+round's `README.md` half turned up one real (if small) arithmetic bug, but
+its `REQUIREMENTS.md` half turned up the single largest-scoped finding of
+this entire four-round series -- a stale section that was wrong on the day
+it was written, not one that drifted later, sitting in the one document
+every other file in this repository calls the contract, unexamined by name
+through three full rounds of a series whose whole method is examining
+documents by name. That is not a thinning yield; finding 1 is comparable in
+scope to round 2's `announced_`/`Tag` cluster, arguably larger, since it
+predates that cluster's own bug by every measure of "how long has this been
+wrong."
+
+That result changes the shape of the convergence question. The criterion
+that would make this series done is not "yield has shrunk for two rounds in
+a row" (true, but round 4 just broke that pattern in absolute terms even as
+round 3 predicted where to look) -- it is **every document this project
+treats as authoritative-by-citation has been read start to finish as a
+round's primary target at least once.** Measured against that bar: every
+`include/` header (round 1), every test-support/example/build/tool/
+benchmark file (round 2), every `docs/*.md` design document plus
+`docs/README.md` (round 3), and now `REQUIREMENTS.md` and root `README.md`
+(round 4) all clear it. One file does not: **`docs/architecture.md`**. It
+has been cited as ground truth by round 1 (test-plan.md's Windows numbers),
+round 3 (the segment-rollover-status finding, sourced from it), and this
+round (all three "Open questions" answers, sourced from it) -- cited more
+than any other single document across this whole series -- and yet no round
+has ever opened it as its own target and read it end to end the way round 3
+did the eleven design docs or this round did `REQUIREMENTS.md`. That is
+exactly `REQUIREMENTS.md`'s profile before this round: heavily deferred to,
+never itself checked. The difference that keeps this from being a repeat of
+finding 1 by prediction alone is that `architecture.md`'s individual claims
+*have* been checked, repeatedly and independently, across all four rounds
+now (round 1's phasing note, round 3's v2/v3 roadmap split, this round's
+three open-question answers and its chunk-size/rollover claims) -- every one
+held. `REQUIREMENTS.md` had no such track record; it had never been checked
+at all before finding 1. So the honest prediction for a narrow round 5
+scoped only to `docs/architecture.md` read end to end: likely to find
+something, because it fits the exact shape that has now produced a real bug
+twice (`record-model.md` in round 3, `REQUIREMENTS.md` in round 4); likely
+to find something *small* -- a sentence, not a section -- because unlike
+those two files' relevant passages, this one's individual claims have
+already survived four independent rounds of incidental scrutiny without a
+single miss.
+
+After that one file, the series should stop by this same criterion, with
+nothing hand-wavy standing in for a reason: every authoritative document
+will have been a primary target at least once, the last two rounds' yield
+outside that specific "never-opened, heavily-cited" class has been
+genuinely small (round 3's three single-sentence fixes; this round's finding
+3's one bullet and finding 4's one number, both cheap corrections once
+found), and a fifth corner-hunt would have no named corner left to hunt in
+-- which is the difference between "yield is currently low" (true of rounds
+2 and 3 and not a stopping condition on its own, since round 4 just
+disproved it) and "there is no more ground shaped like the ground that has
+been producing real findings" (the actual stopping condition, not yet quite
+met).

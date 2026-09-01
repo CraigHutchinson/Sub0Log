@@ -14,8 +14,11 @@ or thread later decodes the stream.
 
 **R1.2** A call site must not allocate. No heap traffic on any path a producer
 takes, including when a variable-length argument is large. The strategy for
-oversized payloads is truncation or a separate blob channel -- never a
-`malloc` on the calling thread.
+oversized payloads is a bounded chain of further records for the medium case,
+truncation past that -- never a `malloc` on the calling thread. (A separate
+blob channel was the alternative considered for this; `docs/record-model.md`
+records the decision against it and why the chain mechanism already covers
+the case a blob would have.)
 
 **R1.3** A call site must not take a lock. Chunk acquisition is a single atomic
 read-modify-write; writing into an acquired chunk is unsynchronised because the
@@ -186,10 +189,23 @@ problem from the one-host case in section 5 and would drag a dependency into a
 library that currently has none. The library produces a stream and a decoder; what
 consumes them is the caller's business.
 
-## Open questions
+## Open questions, resolved
 
-- Whether the descriptor is addressed by pointer or by a content-derived id,
-  and what that costs when a plugin is unloaded mid-stream.
-- Chunk size, and whether it should differ between a high-rate producer and an
-  occasional one.
-- Whether the decoder ships as a library, a CLI, or both.
+These were open when this file was first written; `docs/architecture.md`
+("Answers to the open questions in REQUIREMENTS.md") settled all three, and
+the shipped library reflects the answers below. Kept here, rather than
+deleted, for the same reason a rejected design is kept elsewhere in this
+project's docs rather than tidied away: the question a future reader would
+otherwise re-ask.
+
+- **Descriptor addressed by pointer or content id?** Pointer, scoped to the
+  segment by its own definition record (`site.hpp`,
+  `wire::MessagePayload::siteId_`).
+  A content id would buy cross-segment site dedup at the cost of hashing on
+  the producer; nothing in R1-R9 wants that trade.
+- **Chunk size?** A per-segment header value, default 64 KiB
+  (`wire::cDefaultChunkBytes`). High-rate and occasional producers differ by
+  *configuration* (`Logger::Options::segment_`), not by format.
+- **Decoder: library, CLI, or both?** Both. `Decoder`/`Merger` ship as the
+  library; `sub0log-cat` (`tools/`) is the CLI built on top of them, on by
+  default.
