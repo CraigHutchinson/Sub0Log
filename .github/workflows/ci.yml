@@ -181,3 +181,112 @@ jobs:
         run: cmake --build build
       - name: Smoke
         run: ./build/benchmarks/Sub0LogBenchmarks --list
+
+  coverage:
+    # Measures real line coverage from an actual --coverage build and, on
+    # main only, publishes it as a badge -- an unmeasured coverage number
+    # would be exactly the kind of unverified claim this project's own docs
+    # argue against everywhere else (docs/adoption-friction.md's whole
+    # method is "measured, not guessed"). Runs the full suite, unfiltered,
+    # so the published test count is produced by the same run that produces
+    # the coverage number, not a separate hand-maintained figure.
+    #
+    # The badges themselves are shields.io "endpoint" badges reading a JSON
+    # file this job commits to an orphan `badges` branch with the default
+    # GITHUB_TOKEN -- no external account, no repo secret, nothing that can
+    # silently stop working because a third-party service or token expired.
+    name: coverage
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - run: pip install --quiet gcovr
+
+      - name: Configure (instrumented)
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="--coverage -O0"
+          -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure | tee ctest-output.txt
+
+      - name: Measure coverage
+        id: coverage
+        # Scoped to the library's own headers and the shipped tool -- not
+        # the vendored doctest/nanobench trees under build/_deps, and not
+        # tests/packaging's consumer fixtures, which are fresh uninstrumented
+        # cmake configures of their own (drive.cmake, drive_cpm.cmake) and
+        # contribute no .gcda here regardless.
+        run: >
+          gcovr --root . --filter 'include/sub0log/.*' --filter 'tools/.*'
+          -e 'build/_deps/.*' build
+          --print-summary --xml coverage.xml --html-details coverage-html/index.html
+          | tee gcovr-output.txt
+
+          echo "percent=$(grep -oP 'lines: \K[0-9.]+' gcovr-output.txt)" >> "$GITHUB_OUTPUT"
+
+      - name: Parse test count
+        id: tests
+        run: |
+          line=$(grep -E '% tests passed' ctest-output.txt)
+          echo "total=$(echo "$line" | grep -oP 'out of \K[0-9]+')" >> "$GITHUB_OUTPUT"
+          echo "failed=$(echo "$line" | grep -oP '\K[0-9]+(?= tests failed)')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: coverage-html
+
+      - name: Write badge JSON
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          COVERAGE_PERCENT: ${{ steps.coverage.outputs.percent }}
+          TESTS_TOTAL: ${{ steps.tests.outputs.total }}
+          TESTS_FAILED: ${{ steps.tests.outputs.failed }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          pct = float(os.environ["COVERAGE_PERCENT"])
+          color = ("red" if pct < 50 else "orange" if pct < 70 else
+                   "yellow" if pct < 80 else "yellowgreen" if pct < 90 else
+                   "brightgreen")
+          json.dump({"schemaVersion": 1, "label": "coverage",
+                      "message": f"{pct:.0f}%", "color": color},
+                     open("coverage.json", "w"))
+
+          total = int(os.environ["TESTS_TOTAL"])
+          failed = int(os.environ["TESTS_FAILED"])
+          message = f"{total} passing" if failed == 0 else f"{total - failed}/{total} passing"
+          json.dump({"schemaVersion": 1, "label": "tests", "message": message,
+                      "color": "brightgreen" if failed == 0 else "red"},
+                     open("tests.json", "w"))
+          PY
+
+      - name: Publish badges branch
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          rm -rf /tmp/badges-branch && mkdir -p /tmp/badges-branch
+          cd /tmp/badges-branch
+          git init -q
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git fetch -q origin badges 2>/dev/null; then
+            git checkout -q badges
+          else
+            git checkout -q --orphan badges
+          fi
+          cp "${GITHUB_WORKSPACE}/coverage.json" "${GITHUB_WORKSPACE}/tests.json" .
+          git add coverage.json tests.json
+          git commit -q -m "Update badges [skip ci]" || echo "no badge change"
+          git push -q origin badges
