@@ -20,3 +20,18 @@ add_test(NAME "packaging::find_package"
 set_tests_properties("packaging::find_package" PROPERTIES
     LABELS "packaging"
     TIMEOUT 180)
+
+# Proves the *other* documented consumption path: CPMAddPackage(GIT_REPOSITORY
+# ...) straight into a project, the snippet root README.md shows for a
+# consumer who wants Sub0Log without an install step. See drive_cpm.cmake for
+# why a local path stands in for a real GIT_REPOSITORY URL.
+add_test(NAME "packaging::cpm_fetch"
+         COMMAND ${CMAKE_COMMAND}
+                 "-DSUB0LOG_SOURCE_DIR=${CMAKE_SOURCE_DIR}"
+                 "-DSUB0LOG_CONSUMER_DIR=${CMAKE_CURRENT_SOURCE_DIR}/consumer_cpm"
+                 "-DSUB0LOG_WORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/work_cpm"
+                 "-DSUB0LOG_GENERATOR=${CMAKE_GENERATOR}"
+                 -P "${CMAKE_CURRENT_SOURCE_DIR}/drive_cpm.cmake")
+set_tests_properties("packaging::cpm_fetch" PROPERTIES
+    LABELS "packaging"
+    TIMEOUT 180)
