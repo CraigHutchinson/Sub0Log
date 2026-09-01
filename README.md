@@ -91,6 +91,36 @@ coordination between the producers.
 `REQUIREMENTS.md` is the fuller, argued version of this, written as what
 each requirement rules out rather than what it promises.
 
+## Naming it your way
+
+The call sites are macros, not functions, for two specific reasons
+(`STYLE_GUIDE.md`, "Macros"): a disabled site must not evaluate its
+arguments (R1.4) -- a function call always evaluates its arguments before
+the call happens, a macro-guarded `if` does not -- and each call site needs
+its own `static` descriptor, which a macro expanding at that exact source
+location guarantees and a shared function template does not. Both were
+checked against this exact idea, not assumed: an object-oriented
+`sub0log.debug(...)` rewrite was prototyped and both failures reproduced
+before this section was written.
+
+None of that stops you naming them what you like. It's ordinary
+preprocessor substitution, so `__FILE__`/`__LINE__` still resolve to your
+real call site through as many macro layers as you add:
+
+```cpp
+#define logDebug(...) sub0log_debug(__VA_ARGS__)
+#define logInfo(...)  sub0log_info(__VA_ARGS__)
+#define logWarn(...)  sub0log_warning(__VA_ARGS__)
+#define logError(...) sub0log_error(__VA_ARGS__)
+
+logDebug(Storage, "read {} at {} for {} bytes", blobId, offset, length);
+```
+
+That's a consumer's own six lines, not something Sub0Log ships or needs
+to -- verified against a real segment before this snippet was written: the
+renamed call above decodes to the exact file and line it was written on,
+not the line inside `logDebug`'s own definition.
+
 ## Known limitations
 
 Stated here rather than left to be discovered:
