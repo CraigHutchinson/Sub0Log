@@ -106,11 +106,14 @@ tools and tests rather than in producer TUs.
 
 ## Status
 
-Early, but running. The v1 producer and reader paths are implemented and
-tested -- including a round-trip through a real file, records surviving a
-hard-killed producer, and a two-process merge -- with the architecture in
-`docs/architecture.md`. `REQUIREMENTS.md` is the contract this library is
-built to, and remains the right place to disagree.
+Running, v2 complete. v1 built the producer and reader paths -- a round-trip
+through a real file, records surviving a hard-killed producer, a two-process
+merge. v2 added the plugin C ABI (a shared library reaches the host's stream
+without linking the library or duplicating its instance pointer), argument
+chains past the 512-byte inline cap, and child capture's Windows arm. The
+architecture and phasing are in `docs/architecture.md`; `REQUIREMENTS.md` is
+the contract this library is built to, and remains the right place to
+disagree.
 
 What a new consumer actually hits is written down rather than left to be
 discovered: `docs/adoption-friction.md` is the register -- measured, not
