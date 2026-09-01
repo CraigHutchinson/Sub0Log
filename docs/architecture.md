@@ -166,9 +166,13 @@ stream still decodes (R4.3).
 The site's identity is its descriptor address: free, stable per process, no
 lazy initialisation. It is only meaningful *within one segment*, which is
 fine -- the definition record is what gives it meaning, and the decoder keys
-its site table per segment. The announce flag beside the descriptor is a
-constant-initialised atomic; the steady-state cost is one relaxed load and a
-predictable branch.
+its site table per segment. The announce state beside the descriptor is a
+constant-initialised atomic generation counter, not a flag -- a flag was
+tried and was wrong, because it made announcing a once-per-process event
+rather than once per segment generation (`site.hpp`). The steady-state cost
+is unchanged from what a flag would have cost: one relaxed load and a
+comparison against the segment's current generation, then a predictable
+branch.
 
 **SubsystemDefinition** -- names one subsystem id, the same "definition
 precedes use" discipline applied to the one axis it used to stop short of
@@ -182,9 +186,14 @@ only, never reachable from `detail::emit`. Adding it did not move
 these as intact-but-unrecognised, exactly as it already does for `Blob`.
 
 **Continuation** -- a bounded chain for payloads that outgrow one record
-(file paths). Capped; past the cap is truncation, flagged. *(Skeleton in v1:
-the cap and flags are in the format from day one; the writer may truncate
-without chaining until the chain is implemented.)*
+(file paths): an overflowing argument spills into further records in the
+same thread's chunk, chained by `cFlagContinued` and reassembled by the
+reader. Capped at `cMaxContinuations` per argument; past the cap is
+truncation, flagged. *(Skeleton in v1: the cap and flags were in the format
+from day one, with the writer truncating rather than chaining. The chain
+itself shipped in v2 -- see Phasing below -- so a Bytes argument now reaches
+`cInlineBytesCap * (1 + cMaxContinuations)` = 4096 bytes before truncating,
+not 512.)*
 
 **Blob** -- the cold bulk case. Allowed to allocate, because it runs on
 threads that just spent milliseconds waiting (`record-model.md`). Deferred

@@ -1268,3 +1268,261 @@ found), and a fifth corner-hunt would have no named corner left to hunt in
 disproved it) and "there is no more ground shaped like the ground that has
 been producing real findings" (the actual stopping condition, not yet quite
 met).
+
+## Round 5
+
+Ground round 4 named and left explicitly unopened: `docs/architecture.md`,
+read end to end as a primary target rather than cited from. 388 lines,
+checked section by section against the current tree -- the component map,
+the segment/chunk/record-framing wire-format restatements, the requirement-
+to-component mapping (specifically for the four moves rounds 1-4 made:
+`SegmentOptions`/`PlatformError` out of `detail::`, `Stats` into `Logger::`,
+`abi_host.hpp` as a new file, `wire::startUint64LifetimeAt` as a new
+helper), the "Answers to the open questions in REQUIREMENTS.md" section in
+full, every C++-standard claim, the phasing section fresh rather than via
+its three previously-checked sub-claims, and every internal cross-reference.
+
+### 1. The Continuation record's own description still says "until the chain is implemented", two sections above the Phasing entry that says it was
+
+**Bug (stale, self-contradicting within the same file), applied.**
+
+"Records and the descriptor split" describes `Continuation` as: *"Capped;
+past the cap is truncation, flagged. (Skeleton in v1: the cap and flags are
+in the format from day one; the writer may truncate without chaining until
+the chain is implemented.)"* -- present tense, "until", as if chaining were
+still future work. The same file's own "Phasing" section, 160 lines later,
+lists under **v2 (complete)**: "continuation chains, so a Bytes argument
+reaches 4096 bytes rather than being cut at 512." Both cannot be true at
+once, and the code settles which: `detail/emit.hpp`'s `emitChained` writes
+real `wire::Continuation` records chained by `cFlagContinued`, exercised by
+`tests/integration/continuation.test.cpp` (four `TEST_CASE`s, per round 4
+finding 3's own count) and reachable from `emit()` via `if constexpr` for
+any `Bytes`-shaped argument -- not a skeleton, a shipped writer.
+
+`git log -S"until the chain is implemented" -- docs/architecture.md` finds
+exactly one commit, `70b9de2`, the file's *original* commit -- the sentence
+has never been touched since. `git log -S"continuation chains, so a Bytes"
+-- docs/architecture.md` finds `44501ea`, the commit that later updated the
+Phasing section to describe the chain as complete. So the commit that
+correctly updated one description of continuation chains did not touch the
+other, earlier description of the same feature in the same file -- the
+exact shape round 3 found in `record-model.md` (finding 1, "a superseded
+fact never updated after the code under it changed") and round 2 found
+between `test-plan.md`'s table and its own "Known gaps" section (round 4
+finding 3), now found a third time, inside the one file this series had
+not yet opened as a primary target.
+
+**Applied:** the parenthetical rewritten to state chaining shipped in v2
+and cross-reference the Phasing section; the sentence before it expanded
+with the actual mechanism (`cFlagContinued`, `cMaxContinuations`) and the
+current ceiling arithmetic (`cInlineBytesCap * (1 + cMaxContinuations)` =
+4096 bytes), matching `wire.hpp`'s own comment on the same constants
+word for word. No design claim changed -- the paragraph's point (a bounded
+chain, past-cap truncation is flagged) was and remains true; only the
+build-status parenthetical was wrong. Verified against
+`include/sub0log/wire.hpp:69-98`, `include/sub0log/detail/emit.hpp:361-520`,
+and `tests/integration/continuation.test.cpp` before editing.
+
+### 2. "The announce flag" names the mechanism `site.hpp` explicitly says was rejected
+
+**Bug (stale terminology, same root cause round 3 already found once in this corpus), applied.**
+
+"Records and the descriptor split" also says: *"The announce flag beside the
+descriptor is a constant-initialised atomic; the steady-state cost is one
+relaxed load and a predictable branch."* `site.hpp`'s own comment on the
+real field (`announcedGeneration_`) states directly: *"A plain 'announced'
+flag would be wrong, and was: it made announcing a once-per-process
+event..."* -- the same correction round 3 already applied to
+`record-model.md` (finding 1 of that round, "described the announce
+mechanism `site.hpp` explicitly says was wrong and replaced"). This is that
+exact bug's second, independent occurrence, in a different file, unnoticed
+until now because round 3's fix touched `record-model.md` only -- there was
+never a reason for that round to open `architecture.md`'s own paragraph on
+the same mechanism.
+
+`git log -S"announce flag" -- docs/architecture.md` finds only `70b9de2`
+(the file's original commit); `git log -S"announcedGeneration_" --
+include/sub0log/site.hpp` finds `530c7b4` ("Announce a call site per
+segment, not once per process"), the rename commit -- which, like `44501ea`
+above, never touched this file. Also imprecise on its own terms, beyond the
+name: "one relaxed load and a predictable branch" describes a flag check,
+not a load-then-compare-against-generation, which is what
+`detail/emit.hpp:575-576` actually does.
+
+**Applied:** "announce flag" -> "announce state... a constant-initialised
+atomic generation counter, not a flag", with one clause naming why (a flag
+was tried and was wrong, per `site.hpp`) and the cost description corrected
+to "one relaxed load and a comparison against the segment's current
+generation, then a predictable branch." Verified against
+`include/sub0log/site.hpp:30-45` and `include/sub0log/detail/emit.hpp:575-576`.
+
+## What was checked and found sound
+
+**The component map.** Every header named in the diagram
+(`log.hpp`, `site.hpp`, `encode.hpp`, `chunk.hpp`, `segment.hpp`,
+`instance.hpp`, `context.hpp`, `reader.hpp`, `merge.hpp`, `wire.hpp`,
+`severity.hpp`, `detail/platform.hpp`, `sub0log_abi.h`) exists at the path
+shown. The diagram was never exhaustive (it omits `child.hpp`,
+`detail/emit.hpp`, `abi_host.hpp`, `version.hpp` -- all discussed correctly
+in prose sections below it), which is a scope choice stated by the diagram's
+own two-box producer/consumer shape, not an omission needing a fix.
+
+**The requirement-to-component mapping, specifically for the four moves
+this round's brief named.** `architecture.md` makes no claim at all about
+`detail::SegmentOptions`, `detail::PlatformError`, `Logger::Stats`, or
+`wire::startUint64LifetimeAt` -- none of the four is named anywhere in the
+file (checked by grep, not sampling) -- so none of the four moves could have
+made a claim here stale; there was simply nothing written about them to go
+out of date. `abi_host.hpp` is named repeatedly and correctly: as the
+host-side implementation calling `detail::writeSiteDefinitionCore` and
+`detail::reserveRecord` (confirmed at `abi_host.hpp:346,412`), and its
+generation-keyed refusal of an unannounced plugin site (confirmed at
+`abi_host.hpp:387`, which even cites R4.3 the way the doc's R9.1 framing
+complements rather than contradicts).
+
+**Every wire-format restatement, beyond the one bug above.** `SegmentHeader`
+field-by-field (`magic` ending `0x1E`, `formatVersion` first,
+`headerBytes`/`chunkBytes`/`segmentBytes`, `generation`, `processId`,
+`anchorMono`/`anchorWall`, `nextChunk` at its own offset) matches
+`wire.hpp:221-239` exactly, including the 4 KiB header-page reservation
+(`cSegmentHeaderBytes = 4096u`) being distinct from the 64-byte
+`SegmentHeader` struct itself -- the doc's "(fixed 4 KiB page...)" describes
+the reserved region, not the struct, and both numbers check out.
+`ChunkHeader`'s three readable fields match `wire.hpp:241-248`. The record
+head-word bit layout (payloadBytes 0-15, kind 16-23, flags 24-31, sequence
+32-47, commitTag 48-63; `cCommitTag = 0xC511`) matches `wire.hpp:164-174`
+and `RecordHead::pack()`/`unpack()` bit for bit. `MessagePayload`,
+`ContinuationPayload`'s cap arithmetic, and the `Child*Payload` triad all
+check out against their `wire.hpp` structs and static-asserted sizes.
+
+**The "Answers to the open questions in REQUIREMENTS.md" section, read in
+full rather than the fragments round 4 quoted.** All three answers hold
+today, same as when round 4 checked them: descriptor addressing by pointer
+scoped to the segment (`wire.hpp`'s `MessagePayload::siteId_`,
+`site.hpp`'s per-segment table), chunk size as a per-segment header value
+defaulting to 64 KiB (`wire::cDefaultChunkBytes`), and library-then-CLI for
+the decoder (`reader.hpp`/`merge.hpp` plus `tools/sub0log_cat.cpp`, target
+name `sub0log-cat`, `SUB0LOG_BUILD_TOOLS` defaulting `ON`). No drift since
+round 4's check four months of commits ago in this tree's own history.
+
+**Every C++-standard claim.** `grep`ed for `C++26`/`c++26`/`C++20`/`c++20`
+across the whole file: the one hit is the Language Standard section's own
+explanation of *why* C++23 was chosen over C++26 (toolchain floor), not a
+claim that Sub0Log targets anything but C++23. `cxx_std_23` in the root
+`CMakeLists.txt` (`target_compile_features(Sub0Log INTERFACE cxx_std_23)`)
+confirms the one concrete claim the section makes. The `<expected>`/Clang-19
+supporting fact matches `detail/platform.hpp`'s own comment on
+`PlatformError` almost verbatim, and the `valid()`/`error()` fallback
+pattern it describes is what `segment.hpp` and `detail/platform.hpp` both
+actually do.
+
+**The phasing section, read fresh in full, not only via its three
+previously-checked sub-claims (test counts, "eight of the ten", the blob-
+channel note).** v1/v1-stretch/v2/v3/vNext boundaries all still match: v1's
+"Windows behind the platform interface, compiled but CI-unverified" is
+historical phrasing about the branch's starting state, not a claim about
+today (the very next bullet says the Windows arm is "no longer... CI-
+unverified"); v2's "eight of the ten process-spawning child tests" re-
+verified directly against `tests/system/child.test.cpp`'s current
+`TEST_CASE`/`#if` guards (10 process-spawning cases, 2 wrapped
+`#if !defined(_WIN32)` -- the POSIX-signal case and the bad-executable-path
+case -- exactly the "cases Windows cannot be asked" the doc names, and
+exactly matching round 1's fix); v3's segment rollover and vNext's seam
+description are both still unbuilt (`grep`ing `include/` for
+`MemorySegment`/`ChunkSource`/`Channel<N>` finds nothing, same check round
+3 already made and this round repeated rather than assumed).
+
+**Every internal cross-reference.** Every backtick-quoted `*.md`/`*.hpp`/
+`*.cpp` path in the file (fourteen distinct targets: `REQUIREMENTS.md`,
+`record-model.md`, `framing-and-recovery.md`, `hard-kill.md`,
+`multi-process.md`, `platform-tracers.md`, `STYLE_GUIDE.md`,
+`adoption-friction.md`, `vnext-frontend-backend.md`,
+`vnext-backends-and-memory.md`, `wire.hpp`, `detail/platform.hpp`,
+`tests/system/abi.test.cpp`, `tests/system/plugin/abi_test_plugin.cpp`,
+`cmake/CPM.cmake`, `tools/sub0log_cat.cpp`) resolved to a real file. The one
+non-literal reference (`tools/sub0log-cat`, hyphenated, in the Phasing
+section) names the built executable target (`add_executable(sub0log-cat
+...)` in `tools/CMakeLists.txt`), not a source file -- correct as written,
+not a broken path.
+
+**Requirement-number citations**, spot-checked rather than exhaustively:
+every `R`-number attached to a section header names a clause that exists in
+`REQUIREMENTS.md` (checked against the current R1-R9 clause list); no
+citation was found pointing at a requirement whose text contradicts the
+section's own claim.
+
+## `docs/debt-review.md` self-skim (per this round's brief, capped effort)
+
+One pass, hunting only for a round's "estimate"/"checked and found sound"
+claim that a *later* round then found false -- not a re-litigation.
+
+No direct contradiction found: nothing in rounds 1-3's "found sound"
+sections is contradicted by anything rounds 2-4 later established. Round 3
+itself already flagged the one clear miss in this shape (round 2's
+"Estimate for round 3" attributing the `ChildOptions` environment-variable
+gap to `adoption-friction.md` when it is actually in `api-review.md`) --
+noted there, not fixed there, per that round's own constraints, and left
+alone here too per this round's brief.
+
+One near-miss worth naming rather than silently passing over, because it
+bears directly on this round's own two findings above: round 4's
+convergence verdict says of `architecture.md`, "this one's individual
+claims have already survived four independent rounds of incidental
+scrutiny without a single miss" and names exactly which claims it means --
+"round 1's phasing note, round 3's v2/v3 roadmap split, this round's three
+open-question answers and its chunk-size/rollover claims." That sentence is
+not falsified by this round's findings 1-2: every claim it lists by name
+did hold, and still holds (re-confirmed above). The two bugs this round
+found live in passages none of those four incidental touches ever
+happened to land on -- the announce-mechanism paragraph and the
+continuation-status parenthetical, both in sections no prior round's
+citation ever quoted. Round 4's sentence was accurate about its own scope
+and, read carefully, already implied this outcome rather than ruling it
+out: a claim's survival across incidental citation is evidence about the
+claims cited, not about the claims never cited. Worth recording as a
+pattern for any future series: "checked repeatedly" is only as strong as
+what the repeated checks actually touched, and a document can be
+heavily-cited and unevenly-covered at the same time.
+
+## Convergence verdict
+
+Round 4's prediction was right on both counts it made: `architecture.md`
+was likely to yield something, because it fit the exact "heavily-cited,
+never-itself-audited" shape that had already produced a real bug twice
+(`record-model.md` in round 3, `REQUIREMENTS.md` in round 4); and whatever
+it yielded was likely to be small -- sentences and a parenthetical, not a
+section -- because its individually-cited claims had already survived four
+rounds of incidental scrutiny intact. Both findings above are exactly that
+shape: a stale word ("flag" for a mechanism explicitly renamed away from
+being a flag) and a stale parenthetical (a "not yet implemented" note the
+same file's own later section contradicts), each a few words to a few
+sentences, each traceable by `git log -S` to the file's original commit
+never being touched by the later commit that made it wrong. Neither
+required cross-file investigation the way round 3's `record-model.md`
+finding or round 4's `REQUIREMENTS.md` finding did -- both were resolved
+within `architecture.md` against its own other sections plus one or two
+`include/` files.
+
+So: the "heavily-cited, never-itself-audited" pattern predicted a finding
+here, and it repeated a third time -- not a null result, and not the
+"pattern finally breaks" outcome the brief asked to be honest about if it
+had occurred. It did not break; it held, at the scale round 4 forecast.
+
+That said, this closes the series. The reasoning is the same criterion
+round 4 set and met: every document this project treats as
+authoritative-by-citation has now been read start to finish as a round's
+own primary target at least once -- every `include/` header (round 1),
+every test-support/example/build/tool/benchmark file (round 2), every
+`docs/*.md` design document (round 3), `REQUIREMENTS.md` and root
+`README.md` (round 4), and now `docs/architecture.md` (round 5). There is
+no remaining file of that shape -- heavily cited, never itself a target --
+left to name; this round's own read of `architecture.md` found and fixed
+the last two instances of the specific bug class (`git log -S` shows both
+traceable to one file's original commit surviving unrevised past a later
+commit that changed the code it described) that has driven every real
+finding across rounds 3 through 5. `docs/api-review.md` and
+`docs/adoption-friction.md` remain explicitly out of this series' editing
+scope by every round's own constraints and were not re-opened here beyond
+the citation check above. A round 6 would need a new axis or a newly
+written file to have anything to find -- there is no more ground shaped
+like the ground that has been producing results.
