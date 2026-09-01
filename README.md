@@ -97,14 +97,18 @@ file, sizes it up front (`segmentBytes_`, 8 MiB by default) and maps the
 whole thing -- no growth, no remap, no wraparound afterward. That's part of
 what makes the hard-kill guarantee above unconditional: nothing about
 staying alive involves resizing or relocating the mapping while it's being
-written to. A *thread*, not a call site, claims a chunk (64 KiB by default)
-out of that fixed space with one atomic -- once when it first logs, again
-whenever the one it's holding fills up -- and every record from every call
-site that thread executes lands in whichever chunk it currently holds. So
-it's write volume and thread count that exhaust a segment, not the number
-of call sites in your code: once the fixed chunk supply runs out, later
-records are dropped and counted rather than blocked or grown into
-("Operating it" below covers what that means for sizing a real service).
+written to. A *thread*, not a call site, claims a chunk (64 KiB by default,
+127 chunks in an 8 MiB segment) out of that fixed space with one atomic the
+first time it logs, and every record from every call site that thread
+executes lands in whichever chunk it currently holds. That claim is
+permanent, not a lease: nothing returns a chunk's unused remainder when a
+thread that barely used it exits, so it's write volume *and* how many
+threads ever log at all that exhaust a segment -- a process spinning up many
+short-lived threads that each log a little can run out of chunks far sooner
+than its total record volume would suggest. Once the fixed chunk supply
+runs out, later records are dropped and counted rather than blocked or
+grown into ("Operating it" below covers what that means for sizing a real
+service; `docs/memory.md` has the full cost table).
 
 A separate `Decoder`/`Merger` turns that back into text (or a value you can
 assert on), on whatever thread and in whatever process wants it. Several
@@ -149,6 +153,11 @@ Stated here rather than left to be discovered:
 - **A segment does not wrap** ("How it works" above has why). A real
   constraint to plan around, not a bug -- "Operating it" below covers
   sizing one for a real service.
+- **A logging thread's chunk is never reclaimed.** A thread that logs once
+  and exits has still permanently spent a whole chunk. A workload built on
+  many short-lived, lightly-logging threads (thread-per-request, a busy
+  pool) can exhaust a segment's chunk supply well before its actual record
+  volume would -- `docs/memory.md` has the numbers.
 - **One host.** No network transport, no collector daemon, no query
   language, and no aggregation across machines -- all explicitly out of
   scope (`REQUIREMENTS.md`, "Explicitly out of scope"). What this produces
@@ -213,10 +222,12 @@ subsystem, correlation), never a text search of the rendered message.
 
 As many readers as you like, at once, on a live segment -- another
 `sub0log-cat --follow`, a tailer like `examples/07_live_tail.cpp`, your own
-tooling. A reader never maps the file for writing and holds nothing open
-between reads: it's a plain read-only file read, decoded into its own
-memory, every pass. Two readers have no state to share, so there's nothing
-to coordinate between them.
+tooling. There's no partitioning between them the way there would be with
+competing consumers on a queue: every reader independently reads the whole
+segment from byte zero, every pass, and nothing is ever marked read or
+removed by reading it. A reader holds nothing open between reads -- it's a
+plain read-only file read, decoded into its own memory -- so two readers
+have no state to share and nothing to coordinate.
 
 ## Operating it
 
