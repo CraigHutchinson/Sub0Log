@@ -108,7 +108,7 @@ neither of which has a Windows equivalent, and neither of which is on this
 project's roadmap (`docs/architecture.md`'s phasing has no entry for
 either). That is narrower than "spawning a subprocess is POSIX-only", which
 stopped being true in v2: `ChildProcess::spawn()`'s Windows arm
-(`CreateProcessW`) shipped there, `windows-msvc` CI runs seven of the nine
+(`CreateProcessW`) shipped there, `windows-msvc` CI runs eight of the ten
 process-spawning tests in `tests/system/child.test.cpp`, and 06 and 10 --
 which only spawn through it -- build and run on every first-class platform
 (R8.1). Each of 04 and 05 still has a Windows *build* arm: its `main()`
