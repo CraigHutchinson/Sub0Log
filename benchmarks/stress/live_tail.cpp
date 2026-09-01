@@ -15,10 +15,10 @@
  */
 
 #include "support/check.hpp"
+#include "support/live_reader.hpp"
 #include "support/scenario.hpp"
 #include "support/temp_dir.hpp"
 
-#include <sub0log/detail/platform.hpp>
 #include <sub0log/log.hpp>
 #include <sub0log/reader.hpp>
 
@@ -78,24 +78,20 @@ ScenarioResult runLiveTail(const RunOptions& options)
         std::thread reader([&] {
             while (!stop.load(std::memory_order_relaxed)) {
                 try {
-                    detail::FileMapping mapping = detail::FileMapping::openReadOnly(segmentPath);
-                    if (!mapping.valid()) {
+                    const LivePassResult pass = readOneLivePass(segmentPath);
+                    if (pass.outcome_ == LivePassOutcome::MappingUnavailable) {
                         continue; // a transient open race is not itself a failure here
                     }
-                    SegmentReader segReader = SegmentReader::open(mapping.bytes());
-                    if (!segReader.valid()) {
+                    if (pass.outcome_ == LivePassOutcome::ReaderInvalid) {
                         readerHealthy.store(false, std::memory_order_relaxed);
                         continue;
                     }
-                    Decoder decoder;
-                    const auto records = decoder.decodeAll(segReader);
-                    if (decoder.undecodableRecords() != 0u) {
+                    if (pass.undecodableFound_) {
                         readerHealthy.store(false, std::memory_order_relaxed);
                     }
-                    const std::uint64_t count = records.size();
                     const std::uint64_t previous =
-                        lastSeenCount.exchange(count, std::memory_order_relaxed);
-                    if (count < previous) {
+                        lastSeenCount.exchange(pass.decodedCount_, std::memory_order_relaxed);
+                    if (pass.decodedCount_ < previous) {
                         monotonic.store(false, std::memory_order_relaxed);
                     }
                     readPasses.fetch_add(1u, std::memory_order_relaxed);

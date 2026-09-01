@@ -343,3 +343,308 @@ where it does not. Applying a "compiles to nothing beyond the
 the project's stated floor would have been the same mistake this file
 spent its second half hunting for elsewhere: an absolute claim nobody
 checked.
+
+## Round 2
+
+Ground round 1 explicitly left uncovered: `tools/sub0log_cat.cpp`,
+`benchmarks/` (KPI suite and the stress harness), `tests/support/`, the
+four newest examples (10, 11, 12 host/plugin), `examples/CMakeLists.txt`,
+`tests/CMakeLists.txt`, and a staleness cross-check of `api-review.md`/
+`adoption-friction.md` against round 1's own fixes. Same four axes, same
+three verdicts, same evidence standard.
+
+### 1. `SiteDescriptor::announced_` and the per-Logger `Tag` workaround are gone from the library; five comments across `benchmarks/` still described the old shape
+
+**Bug (stale comments/docs across two files), applied.**
+
+`site.hpp`'s "have I announced this site" field used to be a plain
+process-wide flag (implicitly `announced_` in its own file's telling of the
+history) and is now `announcedGeneration_`, an atomic keyed on segment
+generation -- the fix that lets a call site reused across independently
+built segments write its `SiteDefinition` into every one of them, not just
+the first. `site.hpp` itself, `benchmarks/support/mixed_records.hpp`,
+`benchmarks/stress/many_segments.cpp`, and `benchmarks/stress/soak.cpp`
+each carry an accurate, first-hand account of that history in their own
+header comments -- the fix landed with the story told correctly at every
+primary site. It just was not propagated to the places that had echoed the
+*old* shape:
+
+- `benchmarks/stress/saturate.cpp` (two places): a call site's
+  `SiteDescriptor::announced_` latch (the field no longer exists -- it is
+  `announcedGeneration_`), and a pre-warm comment describing the race as
+  `"announced_ == 0"` (the actual check, per `detail/emit.hpp`, is
+  `announcedGeneration_ != generation`).
+- `benchmarks/stress/README.md`'s "A subtlety every multi-Logger scenario
+  works around" section: called the field `SiteDescriptor::announced_` and
+  "process-wide"; described `many_segments` and `soak` as still using "a
+  `Tag` template parameter giving each Logger its own call site" -- the
+  exact workaround both files' own current header comments say they
+  deliberately *removed*, because using one shared call site instead is
+  now "the honest test" that the per-generation fix holds.
+- `benchmarks/merge.bench.cpp`'s setup comment: attributed each of the four
+  independent segments getting its own `SiteDefinition` to "a distinct Tag
+  per build" -- the same removed mechanism. The real reason (unchanged
+  since round 1 was not looking here) is simply that sites announce per
+  segment now, regardless of any `Tag`.
+
+A `grep -rn '\bannounced_\b'` across the whole tree (excluding `build*/`)
+found exactly these three files and no others -- not in `include/`, not in
+`docs/api-review.md`/`docs/adoption-friction.md`, not in any example.
+Confirmed against `include/sub0log/detail/emit.hpp:576` (the real check)
+and `include/sub0log/site.hpp:46` (the real field) before editing.
+
+**Applied:** `saturate.cpp`'s two comments corrected to
+`announcedGeneration_` and the real `!= generation` comparison;
+`stress/README.md`'s subtlety section rewritten to describe the fix and
+its history accurately, past tense, matching `mixed_records.hpp`/
+`many_segments.cpp`/`soak.cpp`'s own tellings; `merge.bench.cpp`'s comment
+corrected to attribute the per-segment `SiteDefinition` to the actual
+per-generation announce rather than a `Tag`. No behaviour changed --
+comment and doc text only. Verified: `cmake --build build-stress -j8`
+(clean) and `./build-stress/benchmarks/Sub0LogStress --quick` (7/7
+scenarios PASS), `cmake --build build-bench -j8` (clean,
+`merge.bench.cpp` recompiles and runs).
+
+### 2. `stress/README.md`'s `cap_churn` row describes the pre-continuation-chains behaviour
+
+**Bug (stale doc, same root cause as #1 but a different feature), applied.**
+
+The scenario table's `cap_churn` row said truncation happens "iff over
+cap" and that a truncated argument "decodes to exactly the cap"
+(`wire::cInlineBytesCap`, 512 bytes). `cap_churn.cpp`'s own file comment
+already gets this right and explains why it changed: continuation chains
+moved where truncation actually happens from `cInlineBytesCap` to a wider
+*ceiling* (`cInlineBytesCap * (1 + cMaxContinuations)`, 4096 bytes) --
+an argument between the two now arrives whole, reassembled from a chain,
+never truncated. The scenario's own assertions (`cap_churn.cpp:110`,
+`emittedSize > cCeiling`, not `> cInlineBytesCap`) already test the current
+behaviour correctly; only the README's summary of it had not caught up.
+
+**Applied:** the row rewritten to name both boundaries and say truncation
+is measured against the ceiling, not the inline cap. Verified by the same
+`Sub0LogStress --quick` run as #1 (`cap_churn`: 8/8 checks PASS,
+`inlineCap=512 ceiling=4096` printed in its own counters, confirming the
+two constants the corrected row now names).
+
+### 3. `live_tail` and `soak` duplicated a 15-line "read one live pass" reader-thread body, and both reach past the public API to do it
+
+**Gap; the duplication applied, the API question proposed.**
+
+Both scenarios run a reader thread that loops: map the segment file
+read-only, open a `SegmentReader` over the mapping, decode, check
+`undecodableRecords()`, and track whether the decoded count ever goes
+backwards. The bodies were identical apart from `live_tail`'s outer
+`try`/`catch` (it also asserts the reader thread itself never throws) and
+which variables the two scenarios update. Both reach this by calling
+`sub0log::detail::FileMapping::openReadOnly()` directly -- an internal
+type, not part of the public surface `Sub0Log::Sub0Log` consumers link
+against.
+
+That reach is real, but it is not the same shape as `claim.bench.cpp`'s
+direct use of `sub0log::detail::Segment`/`ChunkWriter` (checked and found
+sound, below): that KPI group's whole point is to isolate the cost of one
+specific internal operation (R1.3's `fetch_add`), which has no public
+entry point to measure through by design. `live_tail`/`soak` are not
+measuring `FileMapping` -- they use it only as a means to re-read a
+growing file cheaply many times a second. The rest of the codebase solves
+that exact need -- a console view of a segment still being written --
+entirely through the public API: `examples/07_live_tail.cpp` and
+`tools/sub0log_cat.cpp --follow` both just re-read the whole file into a
+`std::vector<std::byte>` and call `SegmentReader::open()` on the copy,
+sleeping between passes. That works for a human-timescale poll; it would
+tax the stress harness's own read-passes-per-second more than the library
+it exists to stress, which is presumably *why* these two scenarios
+reach past it -- but nothing in either file says so, and nothing offers a
+consumer who actually needs a cheap live-tail (not just an occasional
+poll) a public way to get one. `tests/integration/producer.test.cpp` also
+calls `FileMapping::openReadOnly()` directly, but as a white-box test of
+the mapping API itself -- a different justification again, and the reason
+this is a Gap rather than a Bug: every one of the three uses is
+individually defensible, they just were not defensible for the same
+reason, and only one of the three said why.
+
+**Applied (the duplication):** extracted
+`benchmarks/stress/support/live_reader.hpp` (`readOneLivePass()`,
+returning a small `LivePassResult`) and rewired both `live_tail.cpp` and
+`soak.cpp` to call it, keeping `live_tail`'s `try`/`catch` and `soak`'s
+lack of one exactly as they were -- signature- and behaviour-preserving,
+each file's decision about crash-handling is unchanged; only the ~12 lines
+in between are now shared instead of copy-pasted. Verified:
+`cmake --build build-stress -j8` (clean) and
+`./build-stress/benchmarks/Sub0LogStress --quick` (`live_tail`: 5/5 checks
+PASS, `soak`: 4/4 checks PASS, both exercising the new helper).
+
+**Proposed, not applied:** whether the library should offer a public,
+cheap way to open a live/growing segment for repeated reads -- something
+between `SegmentReader::open(span)` (a snapshot the caller must supply)
+and reaching into `detail::FileMapping` directly. Out of reach here
+regardless of confidence: it is new public surface, which this round's
+constraints put in the same bucket as a signature change. Worth deciding
+alongside the two `api-review.md`/`adoption-friction.md`-flagged API gaps
+already on record (the `Child*`-decode helper from round 1 finding 3, and
+`adoption-friction.md`'s open `ChildOptions` environment-variable gap) --
+a small cluster of "the library's own tools needed something the public
+surface does not offer" findings that keep landing in different reviews.
+
+## What was checked and found sound
+
+**`tools/sub0log_cat.cpp`.** Consumer code exactly as advertised: links
+`Sub0Log::Sub0Log`, includes only `merge.hpp`/`reader.hpp`/`version.hpp`,
+touches nothing in `detail::`, does no pointer arithmetic over wire bytes
+(`Merger`/`Decoder` do all of the decoding). Argument parsing is one flat
+linear scan over `argv` with an inline `next()` lambda for "the following
+argument or an error" -- no hidden branches, no state beyond `Options`, a
+reasonable shape for a ~300-line CLI. `--follow`'s re-slurp-and-re-merge-
+every-pass design is commented with why it is correct rather than merely
+simple (a producer's release-store commit is visible to any reader that
+re-opens the mapping, so there is nothing to subscribe to). Cross-checked
+every field name it prints against the structs that back them
+(`Merger::Totals`'s three counters, `wire::ChildExitPayload` is not
+touched here at all -- that stays example/test territory per finding 3
+above) -- all current. `docs/api-review.md` already read this file in
+full (`api-review.md` "What was checked") and found nothing; this round's
+independent read agrees.
+
+**DRY**, beyond the findings above:
+- `slurp`/`onlySegment`-shaped helpers are reimplemented again in every
+  file this round touched (`benchmarks/support/temp_dir.hpp` and
+  `benchmarks/stress/support/temp_dir.hpp` each have their own
+  `TempDir`/`slurpFile`/`onlySegmentIn`, and the stress copy's own header
+  comment self-declares the split: "the stress harness owns its own files
+  end to end"). Same shape round 1 already checked and blessed for
+  `slurp` across examples/tools/benchmarks; confirmed here that the two
+  `support/temp_dir.hpp` copies have not silently drifted beyond that
+  declared independence (identical `TempDir`, identical `slurpFile`; only
+  `onlySegmentIn`'s internals differ cosmetically -- the stress version
+  factors out a reusable `segmentsIn()`, the benchmarks version does not).
+  Not a finding.
+- Considered and rejected as a finding: the "`Logger::create` + check +
+  `ScopedBind` + pre-warm + spawn/join + slurp + decode + check
+  `emitted == decoded + dropped`" shape repeats, with variation, across
+  `saturate.cpp`, `oversubscribe.cpp`, and (restructured per-generation)
+  `soak.cpp`. Unlike the live-reader loop (finding 3), this is calling the
+  same small set of library and `Checker` operations the same way several
+  times with materially different parameters and reporting granularity
+  (`soak` aggregates across generations before its one `checker.check`;
+  the other two check per-run) -- round 1's own bar for what does *not*
+  count as duplication ("exactly-as-similar as calling any library API the
+  same way twice"). No shared helper would remove real repetition here
+  without inventing an abstraction over "run a scenario," which is what
+  `support/scenario.hpp` already is.
+- `child_flood.cpp`'s raw `reader.visit()` walk over `RecordView`/
+  `wire::loadUnaligned<ChildExitPayload>` is the same deliberate pattern
+  round 1's finding 3 already examined and blessed (`Decoder::decodeAll()`
+  has no shape for `Child*` kinds by design) -- a third instance of the
+  same precedent, not a new one.
+- `tests/support/` internally: `fixtures.hpp`, `test_framework.hpp`,
+  `segment_image.hpp`, `doctest_main.cpp` -- four files, each with one job,
+  no near-duplicate helper found among them (`onlySegmentIn` here is the
+  one member of the family that intentionally differs from the
+  `benchmarks`/`stress` copies -- `REQUIRE`-based fail-fast rather than a
+  silent empty-path return, because a test fixture that cannot set up
+  should fail the test at the line that asked, per the file's own header
+  comment).
+
+**Aliasing and UB.** `benchmarks/` and `tools/` reach into `detail::` in
+exactly three places: `claim.bench.cpp` (`detail::Segment`/`ChunkWriter`,
+measuring R1.3's own atomic op by design -- sound, see finding 3's
+comparison), and `live_tail.cpp`/`soak.cpp` (`detail::FileMapping`,
+finding 3). No other file in either directory names anything in
+`detail::`, and nothing does its own pointer arithmetic over wire bytes --
+every decode goes through `SegmentReader`/`Decoder`/`Merger`, or (in
+`examples/plugin_abi/plugin.cpp` and `child_flood.cpp`) through the same
+`wire::loadUnaligned`/hand-assembled-payload pattern already reviewed as
+deliberate in round 1 and in this round's finding-3 discussion. `plugin.cpp`'s
+manual `memcpy`-based payload assembly matches `wire::storeUnaligned`'s own
+native-byte-order convention (`wire.hpp`, `memcpy`-based, no endianness
+conversion) -- checked side by side, not merely assumed compatible.
+`plugin.cpp`'s `reinterpret_cast<std::uint64_t>(&gRequestSite)` is the same
+ordinary, implementation-defined pointer-to-integer cast round 1 already
+reviewed at `site.hpp`'s identical idiom.
+
+**Clarity of design.** `sub0log_cat.cpp`'s dispatch (above) and
+`benchmarks/main.cpp`/`benchmarks/stress/main.cpp`'s near-identical
+table-driven "look up a name, run the matching function" dispatch (the
+stress `main.cpp`'s own comment names the mirroring deliberately) are both
+reasonable shapes that have not grown hidden branches. Every stress
+scenario shares one `Checker`/`ScenarioResult`/`finish()`/`skip()`
+contract from `support/scenario.hpp` + `support/check.hpp` -- none
+invented its own pass/fail mechanism, none bypasses `Checker` to `abort()`
+or throw on a failed invariant. `examples/CMakeLists.txt` and
+`tests/CMakeLists.txt` are both clear about what they build and why;
+`tests/CMakeLists.txt`'s `sub0log_add_test_category()` function is the
+right answer to a three-times repetition `examples/CMakeLists.txt`'s
+shorter, two-exception-list `foreach` does not need.
+
+**Comment bloat and staleness**, beyond the findings above. The four new
+examples (10, 11, `plugin_abi/host.cpp`, `plugin_abi/plugin.cpp`) were
+read in full against `examples/README.md`'s own, more generous bar (teach
+*what and why* to a newcomer, not merely *why* to a maintainer) rather
+than `STYLE_GUIDE.md`'s terser one. Every long comment in all four ties to
+a decision, a hazard, or a piece of the story a newcomer would otherwise
+have to reconstruct (why `plugin.cpp` must not include `log.hpp`; why
+`host.cpp` resolves its own export back through `dlsym`/`GetProcAddress`
+rather than trusting the direct C++ call; why example 10 sets git identity
+with `--local` rather than relying on the default). Every checkable
+absolute claim in these four files and in `examples/README.md`'s coverage
+table and "ladder" table was checked against the current code rather than
+trusted: the POSIX-only example list (04, 05), the Windows-arm claims for
+06/10, the "ten `ChildStart`/`ChildExit` pairs" arithmetic in example 10
+(init + 3 config + 2 add + 2 commit + checkout + log = 10, matching the
+`runGit` calls in the file), and the plugin ABI's "5 records, 2 host + 3
+plugin" -- all true against the code as it stands.
+
+**`docs/api-review.md` and `docs/adoption-friction.md`, cross-checked for
+staleness introduced since they were written** (not re-litigated for new
+findings of their own, per this round's brief). Grepped and read every
+passage naming `tools/sub0log_cat.cpp`, `benchmarks/`, `examples/`,
+`FileMapping`, `atomic_ref`, `start_lifetime_as`, and every hardcoded test
+or scenario count (91/91, "seven" stress scenarios, twelve examples): all
+current. Neither document mentions `SiteDescriptor::announced_`, the `Tag`
+workaround, or anything else touched by findings 1-2 above -- that stale
+material was confined to files these two reviews never had reason to
+read, so nothing needed fixing or flagging in either. `api-review.md`'s
+own "What was checked" already read `tools/sub0log_cat.cpp` in full and
+found it sound, which this round's independent read of the same file
+confirms rather than contradicts.
+
+## Estimate for round 3
+
+Thinner than round 2, and round 2 was already thinner than round 1's
+sixteen-header pass in raw header count -- but round 2's yield (five stale
+comments/docs across three files traceable to one real library fix that
+shipped without every downstream echo being updated, plus one genuine
+15-line duplication with an unexplained `detail::` reach) says the
+un-audited-by-name corners of a codebase are not automatically cleaner
+than the audited ones; they are just less likely to have been *re-checked*
+after something upstream changed. The `announced_`/`Tag` cluster in
+particular is evidence for a specific failure mode this series has not
+named before: round 1's own bar ("every absolute claim... checked against
+current code") applies file by file, and a file nobody's round has opened
+since a dependency changed underneath it fails that bar silently, no
+matter how good the file it echoes is.
+
+What is left for a human decision rather than a further pass: whether
+`live_tail`/`soak`'s need for a cheap live-tail belongs in the public
+surface (finding 3's proposal), which now sits beside round 1's
+`Child*`-decode-helper question and `adoption-friction.md`'s open
+`ChildOptions` environment gap as a small, real cluster of "the library's
+own tooling needed something the public API does not offer" -- three
+independent reviews, three different files, the same shape of gap. That
+cluster is worth someone's deliberate attention regardless of which round
+finds the next instance of it.
+
+For round 3 itself: the remaining un-named ground is thin. `docs/`'s other
+design documents (`record-model.md`, `multi-process.md`,
+`framing-and-recovery.md`, `hard-kill.md`, `platform-tracers.md`,
+`memory.md`, the `prior-art-*.md`/`vnext-*.md` pair) have never been
+cross-checked against current code by any round of this series -- they
+were written *as* design documents rather than audited as ones, which is
+a different question than the four-axis one this series asks, but a
+`grep` for absolute claims in them the way this round did for
+`benchmarks/` would be a reasonable-sized round 3 if one is wanted. Short
+of that, this series is close to the point of diminishing returns: three
+rounds have now read every header, every test-support file, every
+example, every build file, and every tool/benchmark/stress file at least
+once, each against the same four axes, and each round's yield has been
+real but smaller than the last.

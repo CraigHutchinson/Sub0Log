@@ -17,11 +17,11 @@
  */
 
 #include "support/check.hpp"
+#include "support/live_reader.hpp"
 #include "support/scenario.hpp"
 #include "support/temp_dir.hpp"
 #include "support/verify.hpp"
 
-#include <sub0log/detail/platform.hpp>
 #include <sub0log/log.hpp>
 #include <sub0log/reader.hpp>
 
@@ -83,23 +83,20 @@ GenerationOutcome runOneGeneration(int generationIndex, unsigned writerCount,
 
         std::thread reader([&] {
             while (!stop.load(std::memory_order_relaxed)) {
-                detail::FileMapping mapping = detail::FileMapping::openReadOnly(segmentPath);
-                if (!mapping.valid()) {
+                const LivePassResult pass = readOneLivePass(segmentPath);
+                if (pass.outcome_ == LivePassOutcome::MappingUnavailable) {
                     continue;
                 }
-                SegmentReader segReader = SegmentReader::open(mapping.bytes());
-                if (!segReader.valid()) {
+                if (pass.outcome_ == LivePassOutcome::ReaderInvalid) {
                     outcome.readerHealthy_ = false;
                     continue;
                 }
-                Decoder decoder;
-                const auto records = decoder.decodeAll(segReader);
-                if (decoder.undecodableRecords() != 0u) {
+                if (pass.undecodableFound_) {
                     outcome.readerHealthy_ = false;
                 }
-                const std::uint64_t count = records.size();
-                const std::uint64_t previous = lastSeenCount.exchange(count, std::memory_order_relaxed);
-                if (count < previous) {
+                const std::uint64_t previous =
+                    lastSeenCount.exchange(pass.decodedCount_, std::memory_order_relaxed);
+                if (pass.decodedCount_ < previous) {
                     outcome.readerMonotonic_ = false;
                 }
                 ++outcome.readPasses_;

@@ -34,7 +34,7 @@ the rest of what that run would have found.
 |---|---|---|
 | `saturate` | N threads into a deliberately small segment | `emitted == decoded + dropped`; `undecodableRecords() == 0`; decoded argument values match what was emitted |
 | `oversubscribe` | 4x `hardware_concurrency` threads into a large segment | same accounting invariant, under contention on the single `fetch_add` claim (R1.3); throughput reported, never asserted on |
-| `cap_churn` | payloads straddling `wire::cInlineBytesCap` | `cFlagTruncated` set iff over cap; `Logger::stats().truncatedRecords_` matches the over-cap count exactly; a truncated argument decodes to exactly the cap |
+| `cap_churn` | payloads straddling `wire::cInlineBytesCap` and the continuation-chain ceiling (`cInlineBytesCap * (1 + cMaxContinuations)`) | `cFlagTruncated` set iff over the chain ceiling, not the inline cap (a chained argument between the two arrives whole); `Logger::stats().truncatedRecords_` matches the over-ceiling count exactly; a truncated argument decodes to exactly the ceiling |
 | `live_tail` | writers, plus a reader repeatedly opening/decoding the SAME live file | the reader never crashes; its decoded record count is monotonically non-decreasing across passes; `undecodableRecords()` stays 0 while writing continues |
 | `many_segments` | M Loggers, distinct stems, one directory, merged | merged size == sum of independently-decoded per-segment counts; merged `alignedNs_` is non-decreasing; `Merger::totals().undecodableRecords_ == 0` |
 | `child_flood` | POSIX only: `/bin/sh -c` printing thousands of lines across stdout/stderr | `capturedLines_` equals the exact line count; `suppressedLines_ + unloggedLines_ +` logged lines accounts for all of them; the on-disk `ChildExit` record shows exit code 0 |
@@ -43,28 +43,33 @@ the rest of what that run would have found.
 `child_flood` reports itself `SKIP`, not `FAIL`, on Windows (child capture's
 Windows arm is v2 per `docs/architecture.md`).
 
-## A subtlety every multi-Logger scenario works around
+## A subtlety every multi-Logger scenario used to work around
 
-`SiteDescriptor::announced_` (the "have I written my SiteDefinition yet"
-latch, `include/sub0log/site.hpp`) is a **process-wide** one-shot flag tied
-to the call site's address, not to whichever Logger happens to be bound.
-`benchmarks/support/mixed_records.hpp` hits this first: a call site reused
-across independently-built segments in one process only writes its
-SiteDefinition into the *first* one. `many_segments` and `soak` (which
-recreates its Logger mid-run) use the same fix that file does -- a `Tag`
-template parameter giving each Logger its own call site -- so every segment
-gets its own definition rather than silently producing undecodable Message
-records in every generation after the first.
+`SiteDescriptor::announcedGeneration_` (`include/sub0log/site.hpp`) is the
+segment generation a site's SiteDefinition was last written into, keyed per
+generation rather than a one-shot process-wide flag -- so a call site reused
+across independently-built segments gets its own definition written into
+each of them. That was not always true: the field used to be a plain
+process-wide "announced" latch, so a call site reused across independently-
+built segments in one process only wrote its SiteDefinition into the
+*first* one, and every later segment silently produced undecodable Message
+records. `benchmarks/support/mixed_records.hpp`, `many_segments`, and
+`soak` (which recreates its Logger mid-run) each worked around the old
+defect with a distinct call site per Logger/generation; the defect is fixed
+now, and all three deliberately reuse **one** call site instead, which is
+the honest test that the fix holds -- see each file's own header comment
+for the history.
 
 `saturate`, `oversubscribe` and `live_tail` hit a narrower version of the
-same seam: several producer threads can race the `announced_ == 0` check on
-their very first call. If the loser of that race also happens to run out of
-segment room, it pays a second, spurious drop for a definition nobody
-needed after the winner's succeeded -- an artifact of the race this harness
-would introduce, not a library fault. Each of those scenarios emits once,
-single-threaded, before spawning producers, so the definition write is
-race-free and the `emitted == decoded + dropped` accounting is exact rather
-than merely probable.
+same seam even with the fix: several producer threads can race the
+`announcedGeneration_ != generation` check on their very first call. If the
+loser of that race also happens to run out of segment room, it pays a
+second, spurious drop for a definition nobody needed after the winner's
+succeeded -- an artifact of the race this harness would introduce, not a
+library fault. Each of those scenarios emits once, single-threaded, before
+spawning producers, so the definition write is race-free and the
+`emitted == decoded + dropped` accounting is exact rather than merely
+probable.
 
 ## Determinism
 

@@ -22,10 +22,12 @@ void runMergeGroup(std::vector<ankerl::nanobench::Result>& allResults)
 {
     constexpr std::uint64_t cRecordsPerSegment = 25'000;
 
-    // Setup: four independent segments (a distinct Tag per build, so each
-    // gets its own SiteDescriptors and thus its own SiteDefinition records
-    // -- see support/mixed_records.hpp -- exactly as four real producer
-    // processes would each write their own), unmeasured, slurped once.
+    // Setup: four independent segments, each built by its own call to
+    // buildMixedSegmentImage and each getting its own SiteDefinition
+    // records because sites announce per segment, not once per process --
+    // see support/mixed_records.hpp's file comment -- exactly as four real
+    // producer processes would each write their own, unmeasured, slurped
+    // once.
     const std::array<std::vector<std::byte>, 4> images{
         buildMixedSegmentImage("merge0", cRecordsPerSegment),
         buildMixedSegmentImage("merge1", cRecordsPerSegment),

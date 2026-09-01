@@ -31,8 +31,8 @@ constexpr sub0log::SubsystemId cSaturateSubsystem{100};
 
 /// The one call site every producer thread (and the pre-warm call below)
 /// shares. A single, distinct function -- never reused by another
-/// scenario -- so its SiteDescriptor::announced_ latch belongs to this
-/// scenario alone (docs/architecture.md, "the site's identity is its
+/// scenario -- so its SiteDescriptor::announcedGeneration_ latch belongs to
+/// this scenario alone (docs/architecture.md, "the site's identity is its
 /// descriptor address"; benchmarks/support/mixed_records.hpp explains why a
 /// shared call site across independent producers is the wrong shape).
 void emitSaturateRecord(std::uint64_t counter) noexcept
@@ -75,14 +75,14 @@ ScenarioResult runSaturate(const RunOptions& options)
         // Pre-warm the shared call site on the calling thread, with the
         // segment still completely empty, so the SiteDefinition write is
         // guaranteed to succeed before any producer thread starts. Without
-        // this, several threads could race the "announced_ == 0" check
-        // simultaneously; the loser(s) would each pay a second, spurious
-        // drop for a definition nobody needed after the first succeeded,
-        // which would desynchronise "one emitted call, at most one drop"
-        // from reality under no fault of the library's -- purely an
-        // artifact of how this harness would have shaped the race. Emitting
-        // once, single-threaded, first, makes the accounting exact instead
-        // of merely probable.
+        // this, several threads could race the "announcedGeneration_ !=
+        // generation" check simultaneously; the loser(s) would each pay a
+        // second, spurious drop for a definition nobody needed after the
+        // first succeeded, which would desynchronise "one emitted call, at
+        // most one drop" from reality under no fault of the library's --
+        // purely an artifact of how this harness would have shaped the
+        // race. Emitting once, single-threaded, first, makes the accounting
+        // exact instead of merely probable.
         emitSaturateRecord(0u);
         ++totalEmitted;
 
