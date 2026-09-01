@@ -359,7 +359,7 @@ gates all of it, so a consumer embedding the library via
   argument reaches 4096 bytes rather than being cut at 512; and the Windows
   child-capture path. The Windows work is no longer "written but
   CI-unverified" -- `windows-msvc` builds and runs both the ABI round trip
-  and seven of the nine process-spawning child tests, the two exceptions
+  and eight of the ten process-spawning child tests, the two exceptions
   being cases Windows cannot be asked (there is no signal to send a child,
   and a bad executable path fails in `spawn()` rather than in the child).
   The blob channel was reviewed and deliberately not built; the reasoning

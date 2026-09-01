@@ -133,9 +133,11 @@ inline void ChunkWriter::commit(const Reservation& slot, wire::RecordHead head) 
     // hands out slots at 8-aligned offsets within an 8-aligned chunk body).
     // atomic_ref over that uint64_t-sized, uint64_t-aligned storage is the
     // producer's one piece of cross-thread synchronisation with the reader
-    // (R1.3): release here, acquire on the read side.
+    // (R1.3): release here, acquire on the read side. startUint64LifetimeAt
+    // (wire.hpp) is what makes forming this reference well-defined rather
+    // than merely working.
     std::atomic_ref<std::uint64_t> headRef{
-        *reinterpret_cast<std::uint64_t*>(slot.headWord_)};
+        *wire::startUint64LifetimeAt(slot.headWord_)};
     headRef.store(head.pack(), std::memory_order_release);
 }
 

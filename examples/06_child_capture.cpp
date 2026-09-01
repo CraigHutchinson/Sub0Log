@@ -32,7 +32,7 @@
 //
 // This example runs on every first-class platform (R8.1): ChildProcess's
 // Windows arm (CreateProcessW) shipped in v2, and `windows-msvc` CI runs
-// seven of the nine process-spawning tests in tests/system/child.test.cpp
+// eight of the ten process-spawning tests in tests/system/child.test.cpp
 // (docs/architecture.md's phasing) -- the two exceptions are a signal-
 // specific case and a bad-executable-path case, neither of which this
 // example depends on. What differs below is only the *script text*: `sh`

@@ -12,7 +12,7 @@ Three ctest labels, three executables, one discipline each:
 | `unit` | `Sub0LogUnitTests` | pure logic against `wire.hpp`/`encode.hpp`/`context.hpp`; no I/O, no processes |
 | `integration` | `Sub0LogIntegrationTests` | components against real files or hand-built images, one process |
 | `system` | `Sub0LogSystemTests` | whole-library promises: hard kills, several processes, spawned children |
-| `example` | `examples/` (8 programs) | consumer-shaped usage, run unattended so it cannot rot |
+| `example` | `examples/` (12 programs) | consumer-shaped usage, run unattended so it cannot rot |
 
 Run one with `ctest -L unit` (or `integration`, `system`, `example`).
 
@@ -23,28 +23,43 @@ asserts invariants, exiting nonzero when one breaks. See "Stress" below.
 
 ### What runs where
 
-Measured from the CI matrix, not estimated:
-
 | platform | unit | integration | system | total |
 |---|---:|---:|---:|---:|
-| Linux (GCC, Clang, GCC+ASan/UBSan) | 17 | 22 | 14 | **53** |
-| macOS (AppleClang) | 17 | 22 | 14 | **53** |
-| Windows (MSVC) | 17 | 22 | 2 | **41** |
+| Linux (GCC, Clang, GCC+ASan/UBSan) | 25 | 36 | 29 | **90** |
+| macOS (AppleClang) | 25 | 36 | 29 | **90** |
+| Windows (MSVC) | 29 | 36 | 21 | **86** |
+
+Linux and macOS are measured directly (`ctest --test-dir build`); Windows is
+worked out the same way `SUB0LOG_EXAMPLES_POSIX_ONLY` below is -- by reading
+which `TEST_CASE`s sit behind a `#if !defined(_WIN32)`/`#ifndef _WIN32` guard
+-- rather than from an actual Windows run, so treat it as a confirmable
+prediction and check it against CI before trusting it further.
 
 The `example` label and the stress harness run on Linux in CI; the examples
-that `fork` or spawn (04, 05, 06) are excluded from the Windows build by
+that call `fork()` directly (04, 05) are excluded from the Windows build by
 `examples/CMakeLists.txt` rather than compiled and skipped, for the same
-reason the system tests are.
+reason the system tests are. 06 and 10 spawn a child too, but through
+`ChildProcess::spawn()`, which has had a real Windows arm (`CreateProcessW`)
+since v2, so both build and run there like everything else in the ladder.
 
-`unit` and `integration` run identically everywhere -- the format, the
-encoder, the reader and the recovery paths are all platform-agnostic by
-construction, and that is the point of keeping them free of process and
-filesystem machinery.
+`integration` runs identically everywhere -- the format, the encoder, the
+reader and the recovery paths are all platform-agnostic by construction, and
+that is the point of keeping them free of process and filesystem machinery.
+`unit` is the same everywhere plus four Windows-only cases: `platform.test.cpp`
+exercises `toWidePath()`, which only exists in `detail/platform.hpp`'s
+`_WIN32` arm, so the whole file compiles to nothing anywhere else.
 
-The 12 `system` tests Windows does not run are the ones that `fork` or spawn
-a child: the hard-kill test, the two-process merge, the environment-root
-correlation test, and the nine child-capture tests. Their Windows arms are
-v2 (`docs/architecture.md` phasing). They are **compiled out** on Windows
+The 8 `system` tests Windows does not run are every one that calls `fork()`
+directly -- the hard-kill test, the two-process merge, the environment-root
+correlation test, and the forked-child-detach test (`roundtrip.test.cpp`),
+plus the R9.3 detached-child-accounting test (`binding.test.cpp`) -- the
+`sub0log-cat --follow` test (`tool.test.cpp`, fork/exec/SIGTERM to drive the
+tool as a real subprocess), and 2 of the 10 child-capture tests
+(`child.test.cpp`): the POSIX-signal case and the bad-executable-path case,
+neither of which Windows can be asked (`docs/architecture.md`'s v2 phasing
+note). The other 8 child-capture tests run on Windows since v2, same as
+everywhere else -- child capture is no longer the all-or-nothing split this
+table used to describe. Every exclusion above is **compiled out** on Windows
 rather than skipped at runtime, so the count differing between platforms is
 visible in the test output rather than hidden behind a green tick.
 
@@ -103,7 +118,7 @@ R-numbers from `REQUIREMENTS.md`. "bench" = the KPI suite under
 | R6 correlation is a field | unit scope tests; system round-trip asserts equality on the field |
 | R7.1 scoped instance, drain sync | every integration/system test uses `ScopedBind` over a temp dir; system "a call site reached under a second Logger is announced into that segment too" is the regression for the defect that broke this for shared call sites |
 | R7.2 no test-only branches | discipline + review; nothing in `include/` references a test macro |
-| R8.1 three platforms | CI matrix, all eight jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 53/53, Windows/MSVC 41/41, plus the `examples` and `stress-quick` gates (see "What runs where") |
+| R8.1 three platforms | CI matrix, all eight jobs green: Linux (GCC, Clang, GCC+ASan/UBSan) and macOS run 90/90, Windows/MSVC 86/86, plus the `examples` and `stress-quick` gates (see "What runs where") |
 | R8.1 word size | `linux-gcc-m32` runs the whole suite under `-m32`. It exists for one claim -- a pointer is eight bytes on the wire on every target, so a 64-bit reader can decode what a 32-bit producer wrote -- which no local toolchain could check; unit `static_assert`s pin the invariant itself (`fixedWireSize<void*>() == 8`, `Encodable<void*>`) so a regression fails on 64-bit too |
 | R8.2 C++23, no extensions | `CXX_EXTENSIONS OFF` everywhere; CI compilers enforce. One isolated exception, `SUB0LOG_COLD_PATH` (instance.hpp): no standard attribute says "keep this out of the caller", `[[unlikely]]` was tried and measured insufficient, and the comment carries both numbers |
 | R8.1 non-ASCII paths | system `paths.test.cpp`: a real segment created under a `café-日本語` directory, written and decoded, on every platform -- the end-to-end half of the CreateFileW fix, whose unit test only covers the conversion in isolation. Its neighbour asserts an unusable directory produces an invalid Logger that counts drops rather than pretending (R9.2) |
@@ -149,10 +164,14 @@ numbers, and a noisy gate is one people learn to ignore.
 
 ## Known gaps, in one place
 
-- Windows runs 41 of the 53 tests (see "What runs where"); the 12 it does
-  not run are the POSIX-only `system` tests, which need the v2 Windows arms
-  for process spawning and child capture. Three of the eight examples are
-  excluded there for the same reason.
+- Windows runs 86 of the 90 tests (see "What runs where"); the 8 it does
+  not run are the `system` tests that call `fork()` directly, which has no
+  Windows equivalent and none planned. Process spawning and child capture
+  themselves got their v2 Windows arms already -- only 2 of the 10
+  child-capture tests are still POSIX-only, for reasons Windows genuinely
+  cannot be asked (a signal, a shell-only failure mode), not because the
+  capture path itself is unported. Two of the twelve examples (04, 05,
+  both direct `fork()` callers) are excluded there for the same reason.
 - The stress harness and the examples run on Linux in CI only; neither has
   been exercised on macOS or Windows runners.
 - Continuation-chain and Blob record kinds: format reserved, no writer yet,

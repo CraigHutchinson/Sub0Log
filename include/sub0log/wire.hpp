@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <cstring>
 #include <type_traits>
+#include <version>
 
 namespace sub0log::wire {
 
@@ -385,6 +386,46 @@ inline void storeUnaligned(std::byte* const p, const T& value) noexcept
 {
     static_assert(std::is_trivially_copyable_v<T>);
     std::memcpy(p, &value, sizeof(T));
+}
+
+/** Begins a `uint64_t`'s lifetime at `p` and returns a pointer to it, for
+ *  the two call sites (`ChunkWriter::commit`, `Segment::claimChunk`) that
+ *  hand a word inside `mmap`/`MapViewOfFile` storage to `atomic_ref`.
+ *  `atomic_ref` does not create the object it wraps -- its precondition is
+ *  that the referenced object already exists ([atomics.ref.generic]) -- and
+ *  a raw `reinterpret_cast<uint64_t*>` dereferenced to form that reference
+ *  is only defined once an object of that type occupies the storage
+ *  ([basic.life]). Nothing upstream of these two sites performs one of the
+ *  operations the object model recognises as implicitly creating an object
+ *  (`malloc`, `memcpy`, and the short fixed list P0593 names) at either
+ *  address, so forming the reference directly is technically undefined --
+ *  the same question `loadUnaligned`/`storeUnaligned` above sidestep by
+ *  going through `memcpy`, which cannot serve here because `atomic_ref`
+ *  needs a live object to wrap, not a copy of one.
+ *
+ *  `std::start_lifetime_as` (C++23, P2590) is that operation, compiling to
+ *  nothing beyond the `reinterpret_cast` it replaces. It is conditionally
+ *  compiled rather than used unconditionally because it is not yet what
+ *  every compiler on this project's own floor actually ships: absent from
+ *  both `<version>`'s `__cpp_lib_start_lifetime_as` and a direct compile
+ *  probe on GCC 13 and Clang 18, the two compilers `linux-gcc`/
+ *  `linux-clang` build against. The fallback is the `reinterpret_cast` this
+ *  function replaces where the real operation is unavailable -- unsound by
+ *  the same strict reading, not by anything narrower, but consistent with
+ *  what every mainstream compiler has always done with `mmap`-obtained
+ *  storage in practice, so this is a paper cut against a future compiler
+ *  that starts exploiting the gap, not a fix for an observed one.
+ *
+ *  The caller must have already checked the address is 8-byte aligned;
+ *  neither branch does so itself.
+ */
+[[nodiscard]] inline std::uint64_t* startUint64LifetimeAt(std::byte* const p) noexcept
+{
+#if defined(__cpp_lib_start_lifetime_as) && __cpp_lib_start_lifetime_as >= 202207L
+    return std::start_lifetime_as<std::uint64_t>(p);
+#else
+    return reinterpret_cast<std::uint64_t*>(p);
+#endif
 }
 
 } // namespace sub0log::wire

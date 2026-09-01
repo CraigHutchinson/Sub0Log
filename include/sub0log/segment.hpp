@@ -188,9 +188,11 @@ private:
 
     std::byte* const base = mapping_.bytes().data();
     // The only cross-thread synchronisation on the producer path (R1.3):
-    // one fetch_add(relaxed) on the in-mapping cursor.
+    // one fetch_add(relaxed) on the in-mapping cursor. startUint64LifetimeAt
+    // (wire.hpp) is what makes forming this reference well-defined rather
+    // than merely working.
     std::atomic_ref<std::uint64_t> cursor{
-        *reinterpret_cast<std::uint64_t*>(base + wire::cNextChunkOffset)};
+        *wire::startUint64LifetimeAt(base + wire::cNextChunkOffset)};
     const std::uint64_t index = cursor.fetch_add(1u, std::memory_order_relaxed);
     if (index >= chunkCount_) {
         return ChunkWriter{}; // exhausted; caller counts a drop (R9.1).
