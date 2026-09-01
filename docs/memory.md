@@ -50,6 +50,25 @@ logging thread finds the segment exhausted and every record it writes is
 dropped (counted, per R9.1 -- but dropped). A process with many short-lived
 threads exhausts a segment far faster than its record volume suggests.
 
+Not for lack of a hook: a function-local `thread_local`'s destructor is
+guaranteed to run at thread exit, so a "this thread is gone, take its chunk
+back" signal is free to get. What kills the idea is `wire::ChunkHeader::
+ownerThread_` -- thread identity is stamped once, at claim time, per
+*chunk*, not per record. A second thread resuming a chunk the first one
+abandoned would have every one of its records decode as the first thread's,
+silently breaking R2.2's per-thread filtering on the wire itself, not just
+in some reclaim bookkeeping. Fixing that for real needs a per-record thread
+field -- a `wire::cFormatVersion` bump, a deliberate call, not a quiet
+patch -- so this stays a fixed cost rather than a bug to close. It also
+does not extend to a thread that has merely gone idle: unlike an exited
+thread, an idle one cannot be proven done, and forcing it to abandon a
+part-used chunk for a fresh one on its next write recovers nothing (nobody
+else could reuse the old one either way) while spending a second chunk on
+the same thread. The lever that *is* free: `chunkBytes_`
+(`SegmentOptions`) is a per-`Logger` tunable, and sizing it down directly
+shrinks the waste a lightly-logging, short-lived-thread workload pays per
+thread, at the cost of more claims for any thread that logs heavily.
+
 **A call site costs writable memory, not read-only memory.** The whole point
 of the site descriptor is that it lives in the binary's constant data
 (`record-model.md`), but it carries a `mutable std::atomic` for the announce
