@@ -211,6 +211,13 @@ merged onto one timeline -- which is how a group of processes is meant to be
 read. Filtering is on the fields a record actually carries (severity,
 subsystem, correlation), never a text search of the rendered message.
 
+As many readers as you like, at once, on a live segment -- another
+`sub0log-cat --follow`, a tailer like `examples/07_live_tail.cpp`, your own
+tooling. A reader never maps the file for writing and holds nothing open
+between reads: it's a plain read-only file read, decoded into its own
+memory, every pass. Two readers have no state to share, so there's nothing
+to coordinate between them.
+
 ## Operating it
 
 Three things a service needs to know before it runs this in anger, none of
