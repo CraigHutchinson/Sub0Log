@@ -68,7 +68,7 @@ answer was right about the hot path and wrong about the requirement.
 backend ladder from a naive in-memory store up to the multi-process durable
 one, and how memory becomes customisable without putting an allocator hook
 anywhere near a call site. Its central claim is that hot-path "memory
-management" means choosing an arena, not choosing a malloc, because there is
+management" means choosing a channel, not choosing a malloc, because there is
 no malloc there to choose.
 
 **`vnext-frontend-backend.md`** records a design consideration for the next

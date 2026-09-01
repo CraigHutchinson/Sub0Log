@@ -54,10 +54,10 @@ anchor identity -- preserves R1 untouched and makes the backend a policy:
   right rung 1 for tools that want cheap structured logging and for tests
   and embedded uses -- and because the layout is identical, the same
   decoder reads it (dumped or inspected in-process).
-- Later candidates that fit the same seam: segment rollover (v2 already),
-  and an opt-in flush-on-fatal policy (`msync`/`FlushViewOfFile` when a
-  `Fatal` record commits -- the one place a syscall per record is a price
-  worth naming).
+- Later candidates that fit the same seam: segment rollover (v3 on the
+  current roadmap, still unbuilt), and an opt-in flush-on-fatal policy
+  (`msync`/`FlushViewOfFile` when a `Fatal` record commits -- the one place
+  a syscall per record is a price worth naming).
 
 What must *not* vary per backend: the wire format, the commit-last
 protocol, the descriptor split, and the encode rules. A backend chooses

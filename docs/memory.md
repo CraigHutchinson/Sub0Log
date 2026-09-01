@@ -40,8 +40,9 @@ a new thread. Stated rather than papered over.
 | chunks per segment | 127 | `(8 MiB - 4 KiB header) / 64 KiB` |
 | per call site | ~56 bytes RAM | see below |
 | per thread | 64 KiB + cache | the chunk is never returned |
+| plugin ABI site table | 64 KiB | one per host process, built once; see below |
 
-Three consequences worth knowing before deploying this anywhere small:
+Four consequences worth knowing before deploying this anywhere small:
 
 **A thread costs a whole chunk, permanently.** The first emit on a thread
 claims 64 KiB and no chunk is ever reclaimed. With the defaults the 128th
@@ -63,6 +64,22 @@ because the cache can only hold the other one's. Rare in production, easy to
 hit in a test that binds per case. If this matters, the fix is a small
 per-thread map rather than a single slot; it has not been made because
 nothing yet needs it.
+
+**A host that loads plugins reserves one more fixed block, once.**
+`abi_host.hpp`'s `SiteAnnounceTable` -- the table that remembers, per plugin
+call site, which segment generation last got that site's definition -- is a
+fixed 4096-slot array of two atomics apiece (64 KiB), built by a magic static
+the first time any plugin's `define_site` or `emit` reaches the host, never
+grown after. It is not per-plugin: every plugin the host loads shares the one
+table, the same "state belongs to the host" choice `sub0log::unboundEmits()`
+makes. Nothing allocates on the read or write path (both are lock-free,
+`memory_order_relaxed` throughout) and a host that never loads a plugin never
+pays for it, since the table is built lazily. A plugin population declaring
+more than 4096 distinct call sites drops the excess (counted, via
+`siteTableExhausted()`) rather than growing the table or silently colliding --
+the same bounded-rather-than-unbounded trade the segment and chunk sizes
+already make, applied to the one piece of announce-tracking state a plugin
+call site cannot hold itself.
 
 ## The reader
 

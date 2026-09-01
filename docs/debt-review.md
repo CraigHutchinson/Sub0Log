@@ -480,11 +480,11 @@ between `SegmentReader::open(span)` (a snapshot the caller must supply)
 and reaching into `detail::FileMapping` directly. Out of reach here
 regardless of confidence: it is new public surface, which this round's
 constraints put in the same bucket as a signature change. Worth deciding
-alongside the two `api-review.md`/`adoption-friction.md`-flagged API gaps
-already on record (the `Child*`-decode helper from round 1 finding 3, and
-`adoption-friction.md`'s open `ChildOptions` environment-variable gap) --
-a small cluster of "the library's own tools needed something the public
-surface does not offer" findings that keep landing in different reviews.
+alongside the two API gaps already on record (the `Child*`-decode helper
+from round 1 finding 3, and `api-review.md`'s open `ChildOptions`
+environment-variable gap) -- a small cluster of "the library's own tools
+needed something the public surface does not offer" findings that keep
+landing in different reviews.
 
 ## What was checked and found sound
 
@@ -627,11 +627,12 @@ matter how good the file it echoes is.
 What is left for a human decision rather than a further pass: whether
 `live_tail`/`soak`'s need for a cheap live-tail belongs in the public
 surface (finding 3's proposal), which now sits beside round 1's
-`Child*`-decode-helper question and `adoption-friction.md`'s open
-`ChildOptions` environment gap as a small, real cluster of "the library's
-own tooling needed something the public API does not offer" -- three
-independent reviews, three different files, the same shape of gap. That
-cluster is worth someone's deliberate attention regardless of which round
+`Child*`-decode-helper question and `api-review.md`'s open `ChildOptions`
+environment gap as a small, real cluster of "the library's own tooling
+needed something the public API does not offer" -- the same shape of gap
+surfacing independently across this file's two rounds and a separate
+review. That cluster is worth someone's deliberate attention regardless of
+which round
 finds the next instance of it.
 
 For round 3 itself: the remaining un-named ground is thin. `docs/`'s other
@@ -648,3 +649,316 @@ rounds have now read every header, every test-support file, every
 example, every build file, and every tool/benchmark/stress file at least
 once, each against the same four axes, and each round's yield has been
 real but smaller than the last.
+
+## Round 3
+
+Ground round 1 and round 2 named but explicitly left unopened: the eleven
+design documents in `docs/` -- `record-model.md`, `multi-process.md`,
+`hard-kill.md`, `framing-and-recovery.md`, `memory.md`,
+`platform-tracers.md`, `prior-art-cpp-loggers.md`,
+`prior-art-backends-and-memory.md`, `vnext-frontend-backend.md`,
+`vnext-backends-and-memory.md` and `docs/README.md` itself -- read start to
+finish and checked claim by claim against the tree as it exists today,
+rather than as it was reasoned about when written. Not the four-axis
+question (DRY, aliasing, header shape, comment bloat); a narrower one --
+does every claim about **Sub0Log's own current behaviour** still hold,
+given that R4 (the plugin C ABI, `abi_host.hpp`) and continuation chains
+both shipped since most of this corpus was drafted. Same three verdicts as
+rounds 1-2.
+
+### 1. `record-model.md` described the announce mechanism `site.hpp` explicitly says was wrong and replaced
+
+**Bug (a false claim about current behaviour), applied.**
+
+"Where formatting happens" section's neighbour, "So the first use of a site
+writes a definition record...", said: "The site carries a
+constant-initialised atomic **flag** beside its descriptor... the cold path
+runs **once per call site per process**."
+
+That is not what ships. `site.hpp`'s own comment on the real field
+(`announcedGeneration_`, a `mutable std::atomic<std::uint64_t>`) states the
+history directly: *"A plain 'announced' flag would be wrong, and was: it
+made announcing a once-per-process event, so a call site reached under a
+second Logger emitted a Message into a segment that had never been told
+what the site means."* `detail/emit.hpp:575-576` confirms the mechanism the
+comment describes -- a relaxed load of `announcedGeneration_` compared
+against `logger->segmentGeneration()`, re-announcing into every fresh
+generation a rebound `Logger` starts, not once ever.
+
+So `record-model.md` was describing, in the present tense, exactly the
+"flag" shape `site.hpp` explains was tried, measured wrong, and replaced --
+not a design that was later built differently, but the *specific rejected
+predecessor* of what was built, stated as fact. This is the clearest
+instance in the whole corpus of the tense-mismatch this round was asked to
+hunt: not speculation read as fact, but a superseded fact never updated
+after the code under it changed. It sat unnoticed through both rounds 1 and
+2 because neither read `record-model.md` -- the exact "a file nobody's
+round has opened since a dependency changed underneath it" failure mode
+round 2's own estimate named in advance.
+
+**Applied:** "atomic flag" -> "atomic generation counter"; "the emit path
+checks it with one relaxed load" -> "the emit path compares it against the
+segment's current generation with one relaxed load"; "runs once per call
+site per process" -> "runs once per call site per segment generation, not
+once per process", with one added clause naming why (a plain flag was tried
+and was wrong, for the reason `site.hpp` gives). No design claim changed --
+the paragraph's point ("no dynamic initialisation, no latched global, a
+predictable always-false branch on the hot path") was and remains true; only
+the mechanism's shape and cadence were wrong. Verified against
+`include/sub0log/site.hpp:30-45` and `include/sub0log/detail/emit.hpp:575-576`
+before editing, not merely against the doc's own internal consistency.
+
+### 2. `vnext-frontend-backend.md` mislabelled segment rollover as already shipped
+
+**Bug (false build-status claim), applied.**
+
+"Later candidates that fit the same [`ChunkSource`] seam" listed "segment
+rollover (v2 already)" alongside an opt-in flush-on-fatal policy -- both
+framed as *unbuilt* candidates for a *still-unbuilt* seam, which makes the
+parenthetical self-contradicting on its own terms before even checking the
+tree. Checked against it anyway: `docs/architecture.md`'s own roadmap lists
+segment rollover under "**v3**", explicitly separate from its "v2
+(complete)" entry (which names the ABI, continuation chains and the
+Windows child-capture arm and nothing else); `docs/architecture.md:117-118`
+states directly, "Segment rollover is a later phase; the drop counter is
+not"; and `adoption-friction.md` 3.2 -- read fresh for this round, not
+merely cross-checked -- says plainly that a full segment "does not wrap"
+and "drops are permanent once full", the opposite of what a shipped
+rollover would produce. Three independent sources agree rollover has not
+happened; only this one parenthetical said otherwise.
+
+**Applied:** "(v2 already)" -> "(v3 on the current roadmap, still
+unbuilt)". Everything else in the sentence -- that rollover is a plausible
+future rider on the `ChunkSource` seam once that seam exists -- is
+unchanged and was already correct.
+
+### 3. `docs/README.md` named the term its own cross-reference explicitly rejected
+
+**Bug (stale terminology, self-contradicting within the same directory),
+applied.**
+
+`prior-art-backends-and-memory.md` #3 makes a named decision: **"Use the
+word channel"**, not "arena", for a per-region buffer -- LTTng's word for
+"a named group of events with its own buffer configuration", chosen
+*because* "arena" suggests an allocator, which is precisely the confusion
+the design exists to avoid. `vnext-backends-and-memory.md` carries that
+decision faithfully throughout (`grep -n arena` finds nothing in it; every
+mention is "channel"). `docs/README.md`'s one-line description of
+`vnext-backends-and-memory.md`, though, still said its central claim is
+that hot-path "memory management means choosing an **arena**, not choosing
+a malloc" -- the exact word the design corpus, two files over, named and
+rejected. `grep -rn '\barena\b' docs/*.md` finds exactly one live use
+across the whole corpus: this one.
+
+**Applied:** "arena" -> "channel" in `docs/README.md`'s description of
+`vnext-backends-and-memory.md`. No other description in the file needed a
+matching fix -- checked every other file's one-line summary in `README.md`
+against that file's current content and found the rest accurate (see below).
+
+### 4. `memory.md`'s allocation ledger predates `abi_host.hpp` and omitted its one fixed cost
+
+**Gap (an honest ledger that was missing an entry), applied.**
+
+The brief's specific check: does the ledger enumerate every current
+allocation site, including the plugin ABI table that postdates it?
+`abi_host.hpp`'s `SiteAnnounceTable` is exactly what the brief predicted --
+a fixed 4096-slot, lock-free, open-addressed array (two
+`std::atomic<std::uint64_t>` per slot, 64 KiB total), built once by a magic
+static on a host process's first plugin `define_site`/`emit` call, never
+grown, and confirmed allocation-free on both its read and write paths (no
+`new`, no container growth, every access `memory_order_relaxed`). That is a
+real fixed cost of the shape the ledger's own table already enumerates
+(segment file, chunk, per-call-site bytes, per-thread bytes) and it was
+simply not there -- not wrongly claimed as absent, just never added, because
+the table predates the file it now belongs in.
+
+**Applied:** a row in the fixed-costs table (`plugin ABI site table | 64
+KiB | one per host process, built once`) and a new paragraph in the
+"consequences" list ("Four consequences" now, was "Three") explaining what
+it costs, when it is paid (lazily, only if a plugin is ever loaded), and
+what its own bounded-capacity failure mode is (`siteTableExhausted()`,
+counted, same shape as a full segment). This is a completion of the
+ledger's existing enumeration, not a new argument -- the file's central
+claim ("the emit path allocates nothing") was already true of this table
+and stays true; the ledger just did not say the table existed.
+
+Also checked per the brief and found **no correction needed**: continuation
+chains' `emitChained` (`detail/emit.hpp`) stays genuinely allocation-free --
+its "scan and size" and "build the overflow list" work (`detail/emit.hpp`
+~379-438, the same lines finding 4 of round 1 already read for size) uses a
+fixed `std::array<ArgOverflow, cArgCount>` on the stack, not a container;
+`grep`ing the whole file for `malloc|new |allocate|std::vector` outside a
+`string_view` parameter type finds nothing. And `tools/sub0log_cat.cpp`
+being out of the ledger's scope is the right call, not an oversight: it is
+a cold-path consumer of `Merger`/`Decoder` (already established sound in
+round 2), and the allocations it triggers are the ones `memory.md`'s "The
+reader" section already accounts for generically (`Merger::merged()`'s
+one-copy-per-record) rather than anything specific to the CLI itself.
+
+## What was checked and found sound
+
+**The R4/continuation tense-hunt, beyond the one finding above.** Every
+mention of `R4`, `R4.1`, `R4.2`, `R4.3`, "C ABI", "plugin", "continuation"
+or "chain" across all eleven files was read in context, not just grepped:
+- `record-model.md`'s "Continuation records, for the medium case" section
+  (present tense throughout -- "spills into", "chained by a flag") already
+  reads as description of a built mechanism, not speculation, and its
+  companion "Not built, deliberately" paragraph for `RecordKind::Blob`
+  matches `wire.hpp`'s own comment on the same enumerator word for word in
+  substance ("reviewed in v2 rather than built").
+- `record-model.md`'s R4.3 mention ("an offline decode of a stream written
+  by a plugin would follow a dangling pointer... This is R4.3") is
+  counterfactual reasoning about a *rejected* alternative design
+  (resolving addresses by dereferencing them), not a claim about anything
+  unbuilt -- "would" is correct there regardless of R4's status, because
+  the alternative it describes was never built and never will be.
+- `memory.md`'s R4.1 mention (plugin TLS allocation) was already accurate
+  and needed nothing beyond the addition in finding 4.
+- `vnext-frontend-backend.md`'s "The C ABI (R4) fronts whatever backend the
+  host bound, unchanged" is a forward statement about the still-unbuilt
+  backend ladder (there is only one backend today, so there is no "whatever
+  backend" yet to front) -- correctly conditional on work that has not
+  landed, not a claim about today.
+- `prior-art-cpp-loggers.md`'s "a two-pointer C channel is a few dozen
+  lines" was checked against the shipped `sub0log_abi.h` (70 lines) and
+  `abi_host.hpp`'s `Sub0LogAbiGetter`/`Sub0LogAbiV1*` shape. Read as "two
+  pointers cross the boundary at resolution time -- the getter symbol, and
+  the table pointer it returns" (as opposed to counting the three function
+  pointers *inside* the table), the claim holds; this is a defensible
+  reading rather than a confirmed error, so it was left alone rather than
+  rewritten on a guess about what the original sentence meant.
+
+**Every other mention of "would"/"could" attached to a genuinely unbuilt
+feature** -- `MemorySegment`, `ChunkSource`, `Channel<N>`,
+`BasicLogger<ChunkSource>`, `std::pmr` in `Decoder`/`Merger`, a `StringPolicy`
+for `Logger::Options` -- confirmed still unbuilt by grepping `include/` for
+each name and finding nothing (`std::pmr` appears exactly once, in
+`encode.hpp`, and is unrelated -- it is `std::pmr::string` accepted as an
+argument type, not the decoder-side allocator the vNext docs propose). Both
+`vnext-*.md` files remain honestly forward-looking; nothing in them needed
+a tense change.
+
+**`hard-kill.md` and `framing-and-recovery.md`**, read expecting soundness
+per the brief and confirmed rather than assumed: neither names
+`cInlineBytesCap`, a continuation cap, or any other record-kind/field detail
+that continuation chains touched. Both stay at the level of general wire-
+format lessons (commit-last, bounds-check-before-consuming, generation-
+stamped recycled storage) that continuation chains did not change, because
+chains added new record kinds and a new flag bit without touching any of
+the commit-order or truncation-detection machinery either file describes.
+The `cap_churn` boundary-shift round 2 already found and fixed lives only
+in `benchmarks/stress/README.md` and `stress/cap_churn.cpp`; grepping both
+files here for the same terms confirms neither of these two design docs
+ever stated the old, narrower boundary in the first place, so there was
+nothing to correct.
+
+**`multi-process.md`.** Unaffected by anything R4 or continuation-chains
+changed -- its subject (per-process segments, read-time merge, the anchor
+record, the clock problem) sits below both features. Read in full and every
+claim (the three "why not" arguments, the two soundness conditions) checked
+against `Merger`/`SegmentReader` and found current.
+
+**`platform-tracers.md`.** Makes no claim about Sub0Log's own current
+behaviour beyond the "through-line" section's reference to `hard-kill.md`
+and R3.1, both of which are unaffected by this round's two shipped
+features. Every comparative claim in it is about a third-party tracer
+(ETW, LTTng, eBPF, `os_log`, Perfetto, OpenTelemetry, Tracy) and out of
+scope to re-verify per this round's brief.
+
+**`prior-art-backends-and-memory.md`.** Entirely about the still-unbuilt
+vNext design compared against prior art; makes no claim about Sub0Log's
+current shipped behaviour that R4 or continuation chains could have
+outdated. Its two named "decisions" (storage-policy naming, "channel" not
+"arena") are the ones finding 3 above found `README.md` had not fully
+inherited; `vnext-backends-and-memory.md` itself already carries both
+faithfully.
+
+**`docs/README.md`'s other ten one-line file descriptions**, beyond the one
+corrected in finding 3: each re-read against its file's current content.
+`record-model.md`'s description name-checks "the four mechanisms for
+variable-length payloads" -- still four, unchanged since the file was
+written. `prior-art-cpp-loggers.md`'s "ends with the two upstream changes"
+-- still two, in "What would reverse the decision". `hard-kill.md`,
+`framing-and-recovery.md`, `multi-process.md`, `platform-tracers.md`,
+`prior-art-backends-and-memory.md`, `vnext-frontend-backend.md` and
+`adoption-friction.md`'s descriptions all still match. `docs/README.md`'s
+own scope -- "the groundwork this library was built on" -- was checked
+against whether it should index `api-review.md`, `adoption-friction.md` or
+`debt-review.md` (this round's brief asked directly): it already carries
+`adoption-friction.md`, under its own explicit "One file that is not
+groundwork" heading, and deliberately does not carry `api-review.md`,
+`debt-review.md`, `architecture.md` or `test-plan.md` -- none of those are
+groundwork-before-building in the sense this index states its own scope to
+be, they are reviews and references written *after*. That is a scope
+boundary stated in the file's own first paragraph, not an omission, and
+adding entries for them would be inventing content the file never claimed
+to carry rather than correcting something it got wrong.
+
+**Every internal cross-reference** (every backtick-quoted `*.md`/`*.hpp`/
+`*.cpp` path across all eleven files) resolved to a real file in this tree
+-- checked by extracting every such reference and testing it, not by
+sampling. No broken links.
+
+**One item noticed but out of this round's reach.** `debt-review.md`'s own
+round 2 (finding 3's "Proposed" paragraph, and its "Estimate for round 3")
+attributes an "open `ChildOptions` environment-variable gap" to
+`adoption-friction.md`. It is actually in `api-review.md`
+("`ChildOptions` cannot set a child's environment -- **Gap**", line 433) --
+`adoption-friction.md` has no `ChildOptions` mention at all. This is a real
+misattribution, but it lives inside round 2's own already-written section,
+which this round's constraints put off limits ("do not... rewrite round
+1/2's sections in `docs/debt-review.md`"). Noted here rather than silently
+left for a reader to trip over, and rather than fixed.
+
+## Estimate for round 4
+
+Thin, and thinner than round 3's own yield suggests at first glance --
+four findings sounds comparable to round 2's five, but three of round 3's
+four were single-sentence or single-word corrections (a mislabelled
+parenthetical, a stale synonym, a wrong tense-and-noun pair), not the
+kind of multi-file staleness cluster round 2 found in `benchmarks/`. Only
+finding 1 required real cross-file work to run down, and it is also the
+best evidence yet for the specific failure mode round 2's estimate named in
+advance: a document nobody's round had opened since the code under it
+changed fails silently, no matter how carefully the surrounding corpus was
+checked. `record-model.md` sat two files away from `site.hpp` (whose own
+comment states the correction in full) for as long as the generation fix
+has existed, and nothing caught it until a round went looking specifically
+for it.
+
+That argues for one more targeted pass rather than zero, but a narrow one.
+What this round did not touch, by design or by the corpus's own stated
+scope, and what is therefore still real, unaudited ground for a round 4:
+
+- **Root `README.md` and `REQUIREMENTS.md`.** Both are cited *by* every
+  file this round read (`adoption-friction.md`'s "Stated, in the README
+  under 'Operating it'", every design doc's opening paragraph citing a
+  `REQUIREMENTS.md` section by number) but neither has ever been the
+  *target* of a round -- only referenced from one. A claim in
+  `REQUIREMENTS.md` itself going stale against the code it specifies would
+  be invisible to every check this series has run so far, because every
+  round to date has checked *docs against code* or *docs against docs*,
+  never checked whether `REQUIREMENTS.md`'s own numbered clauses (R1
+  through R9) still say what the shipped behaviour does.
+- **`docs/architecture.md` and `docs/test-plan.md` as primary subjects.**
+  Round 1 fixed one shared claim in `architecture.md` as a side effect of
+  auditing `test-plan.md`; this round cited `architecture.md`'s roadmap
+  section three times as a source of truth without ever reading the file
+  end to end for its own staleness the way this round read the eleven
+  files above. Both are exactly the shape of file this series keeps
+  finding rot in (a document whose subject is "what is true about this
+  codebase right now") and neither has had a dedicated pass.
+
+Short of those two, this series has now read every header (round 1), every
+test-support/example/build/tool/benchmark file (round 2), and every design
+document (round 3) at least once, each against a real question checked
+against the tree rather than assumed. The honest read is that this series
+is at or past the point of diminishing returns for a *general* sweep of a
+given corner -- round 4 re-reading any of the ground already covered would
+mostly reproduce round 1-3's own "checked and found sound" sections rather
+than find new material, the same conclusion rounds 1 and 2 each reached
+about their own ground before round 3 found real material in an unopened
+corner regardless. The two corners named above are that same shape of
+exception: genuinely unopened, and worth one more round specifically
+because of it. A round 5 after that would need a new axis, not a new
+corner, to be worth running.

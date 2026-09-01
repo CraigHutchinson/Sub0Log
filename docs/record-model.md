@@ -48,10 +48,15 @@ resolved by the reader.
 
 So the **first use of a site writes a definition record** naming its format
 string, subsystem, severity, argument types and source location. The site
-carries a constant-initialised atomic flag beside its descriptor, so there is
-still no dynamic initialisation and no latched global, and the emit path checks
-it with one relaxed load. The steady-state cost is a predictable, always-false
-branch; the cold path runs once per call site per process.
+carries a constant-initialised atomic generation counter beside its
+descriptor, so there is still no dynamic initialisation and no latched
+global, and the emit path compares it against the segment's current
+generation with one relaxed load. The steady-state cost is a predictable,
+always-false branch; the cold path runs once per call site per segment
+generation, not once per process -- a plain once-per-process flag was tried
+and was wrong, because it left a site reached again under a Logger rebound
+for a new generation (R7.1) writing Messages into a segment that was never
+told what the site means.
 
 The property this buys is the strict form of self-description: everything needed
 to decode a record precedes it in the stream. A truncated stream therefore
