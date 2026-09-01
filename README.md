@@ -78,6 +78,30 @@ kernel-owned memory before the call returns -- which is what lets a
 `SIGKILL`, a `TerminateProcess`, or a segfault leave every record already
 committed intact for the next reader to open.
 
+An argument is one of two kinds, and nothing else compiles. A fixed-size
+value -- `bool`, `char`, an integer or float up to 8 bytes, an enum (via its
+underlying type), a pointer -- is copied by value. Anything that views bytes
+it doesn't own -- `std::string_view`, `std::span<const std::byte>`,
+`const char*`, or any type with a non-throwing conversion to
+`std::string_view` (`std::string` included) -- is copied by view, no
+allocation. A `std::vector`, a `std::filesystem::path`, a
+`std::chrono::duration`, or any other custom type does not compile: each
+needs a representation decision -- an id, `.count()`, `.native()` -- that
+only the call site can make, so the compile error asks for it there instead
+of guessing inside the library. There's no formatter customisation point to
+hook a type into; that refusal is deliberate (`docs/record-model.md`), not
+a gap.
+
+A segment is one memory mapping, sized once. `Logger::create` creates a
+file, sizes it up front (`segmentBytes_`, 8 MiB by default) and maps the
+whole thing -- no growth, no remap, no wraparound afterward. That's part of
+what makes the hard-kill guarantee above unconditional: nothing about
+staying alive involves resizing or relocating the mapping while it's being
+written to. Every call site claims a chunk (64 KiB by default) out of that
+fixed space with one atomic; once the space is gone, later records are
+dropped and counted rather than blocked or grown into ("Operating it"
+below covers what that means for sizing a real service).
+
 A separate `Decoder`/`Merger` turns that back into text (or a value you can
 assert on), on whatever thread and in whatever process wants it. Several
 processes each write their own segment and are merged at read time into one
@@ -118,10 +142,9 @@ Stated here rather than left to be discovered:
   still move between releases; `wire::cFormatVersion` (the on-disk format,
   separate from the library version) is meant to change far more rarely, but
   neither is frozen.
-- **A segment does not wrap.** It is sized once at `Logger::create`, and
-  every record past that size is dropped and counted, permanently, while the
-  process keeps running. See "Operating it" below -- this is a real
-  constraint to plan around, not a bug.
+- **A segment does not wrap** ("How it works" above has why). A real
+  constraint to plan around, not a bug -- "Operating it" below covers
+  sizing one for a real service.
 - **One host.** No network transport, no collector daemon, no query
   language, and no aggregation across machines -- all explicitly out of
   scope (`REQUIREMENTS.md`, "Explicitly out of scope"). What this produces
@@ -189,14 +212,13 @@ subsystem, correlation), never a text search of the rendered message.
 Three things a service needs to know before it runs this in anger, none of
 which the API can tell you at the point you need them:
 
-**A segment does not wrap.** It is sized once, at `Logger::create`, and when
-it fills every later record is dropped and counted -- permanently, while the
-process keeps running perfectly. That is deliberate: rotation policy is where
-logging libraries go to acquire configuration surfaces, and `REQUIREMENTS.md`
-puts it out of scope. The intended pattern is a new segment per run, or per
-interval, with `Merger` putting them back into one ordered stream at read
-time. Size `segmentBytes_` for the rate you expect, and alert on the drop
-counter rather than on the file.
+**Size for the rate you expect.** A segment does not wrap ("How it works"
+above has the mechanism and why); rotation policy is where logging
+libraries go to acquire configuration surfaces, and `REQUIREMENTS.md` puts
+it out of scope on purpose. The intended pattern is a new segment per run,
+or per interval, with `Merger` putting them back into one ordered stream at
+read time. Set `segmentBytes_` for the rate you expect, and alert on the
+drop counter rather than on the file.
 
 **Watch two counters and one number.** `Logger::stats()` gives dropped and
 truncated records; `sub0log::unboundEmits()` gives call sites that reached no
