@@ -377,6 +377,10 @@ gates all of it, so a consumer embedding the library via
   shipped in v1, because `adoption-friction.md` 2.1 found that every
   consumer, this repository's own examples included, was writing the same
   forty-line printer before they could see anything at all.
+  `vnext-segment-rollover.md` works this phase out in full: watermark
+  pre-fetch, a configurable retention policy, and a compactor, each built
+  from primitives -- `Logger::active()`'s atomic swap, the wire format's
+  existing generation stamp -- this codebase already has.
 - **vNext**: a front-end/backend split at the chunk-source seam.
   `vnext-frontend-backend.md` fixes where that seam may go and why the
   classic queue-based split is off the table;

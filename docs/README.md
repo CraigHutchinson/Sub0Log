@@ -77,6 +77,16 @@ that rules out its obvious shape: a record queue under the word "backend" is
 the staging arrangement `hard-kill.md` rejects. The honest seam is the chunk
 source, where backend choice costs nothing per record.
 
+**`vnext-segment-rollover.md`** works out "v3: segment rollover" --
+`architecture.md`'s phasing has carried that as a one-line placeholder since
+it was written. Three decoupled layers (watermark-triggered pre-fetch and an
+atomic swap to the next segment; a configurable retention policy, unbounded
+by default; a compactor that retires old segments without ever blocking the
+write side), each built from primitives the library already has rather than
+new mechanism, and two rejected alternatives it took working through first
+(growing a mapping in place, compacting a live segment) to see why this
+shape is the one that survives contact with R1.3 and R3.1/R3.2.
+
 **`record-model.md`** covers keeping the constant half of a call site out of the
 record, why a site definition must be written by the producer rather than
 resolved by the reader, where formatting happens, and the four mechanisms for
