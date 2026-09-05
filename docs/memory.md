@@ -111,10 +111,15 @@ effect. `SegmentReader::visit` is the streaming interface underneath, now a
 template rather than a `std::function`, so a caller that wants bounded
 memory can filter as records arrive instead of materialising all of them.
 
-`Merger::merged()` still deep-copies each record, including its argument
-vector. That is one allocation per record and doubles peak. It is on the
-cold path and it is the honest place to spend, but it is the next thing to
-fix if a merge ever needs to be memory-bounded.
+`Merger::merged()` used to deep-copy each record, including its argument
+vector -- one allocation per record, doubling peak, for no reason: nothing
+reads `Loaded::records_` again once that copy is made. It now moves each
+record out instead, which is why it is no longer `const` (a caller must
+call it once, after every `addSegment()`, and not rely on calling it
+again). Still on the cold path, and still not memory-bounded -- `merged()`
+returns everything at once rather than streaming, so peak is still every
+segment's decoded records held at the same time -- but the redundant copy
+that used to double that peak is gone.
 
 ## What a memory-restricted or embedded target would need
 

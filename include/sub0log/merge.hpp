@@ -51,7 +51,19 @@ public:
     /// The returned records borrow twice: site_ points into this Merger's
     /// decoders, and string arguments view the added images -- so both the
     /// Merger and every image must outlive the result.
-    [[nodiscard]] std::vector<MergedRecord> merged() const;
+    ///
+    /// Moves each DecodedRecord out of this Merger's own per-segment storage
+    /// rather than copying it (docs/memory.md, "The reader" -- this used to
+    /// be one allocation and one deep copy of `args_` per record, doubling
+    /// peak memory for no reason: `Loaded::records_` is never read again
+    /// after this runs, only `decoder_` is, for subsystemName()). That is
+    /// why this is not `const`: call it once, after every addSegment() and
+    /// before nothing else that needs the records themselves. A second call
+    /// is not undefined behaviour -- the moved-from records are still there,
+    /// just each with an empty `args_` -- but it is not a useful one either,
+    /// so do not rely on merged() being repeatable the way addSegment(),
+    /// totals() and subsystemName() are.
+    [[nodiscard]] std::vector<MergedRecord> merged();
     [[nodiscard]] Totals totals() const noexcept { return totals_; }
 
     /// The name declared for `subsystem`, searched across every added
@@ -110,7 +122,7 @@ inline SegmentError Merger::addSegment(std::span<const std::byte> image)
     return SegmentError::Ok;
 }
 
-inline std::vector<MergedRecord> Merger::merged() const
+inline std::vector<MergedRecord> Merger::merged()
 {
     std::size_t total = 0;
     for (const auto& seg : segments_) {
@@ -120,12 +132,16 @@ inline std::vector<MergedRecord> Merger::merged() const
     std::vector<MergedRecord> out;
     out.reserve(total);
 
-    for (const auto& seg : segments_) {
+    // Non-const seg, and rec taken by mutable reference below: this moves
+    // each DecodedRecord's args_ vector into `out` instead of allocating a
+    // second copy of it, since nothing looks at Loaded::records_ again once
+    // this loop is done (see the class comment on why merged() is not const).
+    for (auto& seg : segments_) {
         const std::uint64_t anchorMono = seg.header_.anchorMonoNs_;
         const std::uint64_t anchorWall = seg.header_.anchorWallNs_;
         const std::uint64_t processId = seg.header_.processId_;
 
-        for (const DecodedRecord& rec : seg.records_) {
+        for (DecodedRecord& rec : seg.records_) {
             std::uint64_t alignedNs;
             if (rec.monoNs_ >= anchorMono) {
                 alignedNs = anchorWall + (rec.monoNs_ - anchorMono);
@@ -140,7 +156,7 @@ inline std::vector<MergedRecord> Merger::merged() const
                 // pinned near where it was actually written.
                 alignedNs = anchorWall;
             }
-            out.push_back(MergedRecord{rec, processId, alignedNs});
+            out.push_back(MergedRecord{std::move(rec), processId, alignedNs});
         }
     }
 

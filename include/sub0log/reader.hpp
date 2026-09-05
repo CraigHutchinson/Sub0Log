@@ -105,6 +105,22 @@ public:
      *  first did, makes the number useless for the question R3.3 asks:
      *  a fresh 8 MiB segment holding four records reported 8.3 million
      *  "unreadable" bytes, which reads as catastrophe and means nothing.
+     *
+     *  Bounded by the segment's own *declared* body size
+     *  (`header().segmentBytes_ - header().headerBytes_`), not by however
+     *  many bytes were physically handed to open(). SegmentHeader::
+     *  segmentBytes_ is never checked against the image size the way
+     *  headerBytes_ is (visit()'s truncated-tail branch says why: counting
+     *  a corrupted, oversized segmentBytes_'s whole remainder in one
+     *  arithmetic step, rather than walking chunk by chunk, is what keeps
+     *  an untrusted value from becoming an unbounded loop), so a segment
+     *  that legitimately claims to be far larger than the file actually
+     *  handed to this reader -- the ordinary truncated-tail case R3.3 is
+     *  for, taken to an extreme -- reports a correspondingly large number
+     *  here. That is correct, not a bug: proven by exhaustive single-byte
+     *  corruption in `tests/integration/reader.test.cpp`, which asserted
+     *  the tighter (and wrong) bound against the physical image first and
+     *  had to be corrected once that assumption failed.
      */
     [[nodiscard]] std::uint64_t unreadableBytes() const noexcept
     {

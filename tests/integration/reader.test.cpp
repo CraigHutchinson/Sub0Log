@@ -549,6 +549,616 @@ TEST_CASE("a message with no matching site definition is undecodable, others una
 }
 
 // ---------------------------------------------------------------------------
+// (6b) Decoder payload parsing: every length embedded in a SiteDefinition,
+// SubsystemDefinition or Message payload is bounds-checked against that
+// payload before it is used (the same R3.3 discipline SegmentReader::visit
+// already applies to a record's own payloadBytes_, one layer up). Every case
+// here is a record SegmentReader::visit hands over as intact (a real,
+// committed head word and a length that fits its *chunk*) whose *payload
+// content* lies about its own internal structure -- the threat these checks
+// exist for is a hostile or corrupted payload, not a torn write.
+
+TEST_CASE("a SiteDefinition payload shorter than its own fixed prefix is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    // One byte short of sizeof(wire::SiteDefinitionPayload) (24): nothing
+    // past this point (argCount, format, file) can even be located.
+    std::vector<std::byte> payload(sizeof(wire::SiteDefinitionPayload) - 1u, std::byte{0});
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+    CHECK(reader.unreadableBytes() == 0u); // the record itself was intact; its content was not usable.
+}
+
+TEST_CASE("a SiteDefinition whose argCount lies about the bytes actually present is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    wire::SiteDefinitionPayload prefix{};
+    prefix.siteId_ = 1u;
+    prefix.argCount_ = 200u; // claims 200 type-code bytes; none follow.
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    // No type-code bytes, no format/file lengths: argCount alone already
+    // overruns what is left of this payload.
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a SiteDefinition whose formatLen overruns the payload is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    wire::SiteDefinitionPayload prefix{};
+    prefix.siteId_ = 2u;
+    prefix.argCount_ = 0u;
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    appendRaw<std::uint16_t>(payload, 60000u); // formatLen claims far more than follows.
+    appendBytesRaw(payload, "short"); // 5 real bytes, not 60000.
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a SiteDefinition whose fileLen overruns the payload is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    // A well-formed format string, then a fileLen that lies -- proof the
+    // check applies independently to the *second* embedded length, not
+    // only ever exercised on the first.
+    wire::SiteDefinitionPayload prefix{};
+    prefix.siteId_ = 3u;
+    prefix.argCount_ = 0u;
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    appendLengthPrefixed(payload, "ok format");
+    appendRaw<std::uint16_t>(payload, 12345u); // fileLen claims far more than follows.
+    appendBytesRaw(payload, "x.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a SubsystemDefinition shorter than its own fixed prefix is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    std::vector<std::byte> payload(sizeof(wire::SubsystemDefinitionPayload) - 1u, std::byte{0});
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SubsystemDefinition, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a SubsystemDefinition whose nameLen overruns the payload is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    wire::SubsystemDefinitionPayload prefix{};
+    prefix.subsystemId_ = 9u;
+    prefix.nameLen_ = 40000u; // claims far more than follows.
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    appendBytesRaw(payload, "net");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SubsystemDefinition, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+    // The malformed declaration never registers, so the id reads as unnamed
+    // rather than as whatever garbage the lying length would have captured.
+    CHECK(decoder.subsystemName(SubsystemId{9u}).empty());
+}
+
+TEST_CASE("a Message payload shorter than MessagePayload itself is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    const auto defPayload =
+        buildSiteDefinitionPayload(0x10u, 0u, 1u, Severity::Info, {}, "no args", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    std::vector<std::byte> shortPayload(sizeof(wire::MessagePayload) - 1u, std::byte{0});
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 1, shortPayload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a Message whose Bytes argument length overruns the payload is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x20u, 0u, 1u, Severity::Info, {wire::TypeCode::Bytes}, "{}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload prefix{};
+    prefix.siteId_ = 0x20u;
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    appendRaw<std::uint16_t>(payload, 500u); // claims 500 bytes; none follow.
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 1, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a Message too short for its site's declared fixed argument is undecodable")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    // The site promises a U64 argument (8 bytes); the message supplies one
+    // byte of it and stops.
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x30u, 0u, 1u, Severity::Info, {wire::TypeCode::U64}, "{}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload prefix{};
+    prefix.siteId_ = 0x30u;
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    appendRaw<std::uint8_t>(payload, 0xFFu); // one byte, not the eight U64 needs.
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 1, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a site declaring a type code this decoder does not recognise fails that message safely")
+{
+    // A raw byte no wire::TypeCode enumerator names -- a newer producer's
+    // argument kind read by an older decoder, or simply a corrupted byte.
+    // wire::fixedSizeOf() returns 0 for it (not Bytes, not a known fixed
+    // size), which the Message-decoding loop already treats as "cannot
+    // size this argument" rather than reading garbage or shifting by an
+    // unbounded amount.
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    std::vector<std::byte> defPayload;
+    wire::SiteDefinitionPayload defPrefix{};
+    defPrefix.siteId_ = 0x40u;
+    defPrefix.argCount_ = 1u;
+    appendRaw(defPayload, defPrefix);
+    appendRaw<std::uint8_t>(defPayload, 250u); // not a value TypeCode names.
+    appendLengthPrefixed(defPayload, "{}");
+    appendLengthPrefixed(defPayload, "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload prefix{};
+    prefix.siteId_ = 0x40u;
+    std::vector<std::byte> payload;
+    appendRaw(payload, prefix);
+    appendRaw<std::uint64_t>(payload, 0xAAAAu); // whatever bytes; never reached as this type.
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 1, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+// ---------------------------------------------------------------------------
+// (6c) Continuation-chain adversarial handling. continuation.test.cpp proves
+// the happy paths end to end through a real producer; these hand-build the
+// wire shapes a corrupted or hostile stream could present instead, the same
+// way the rest of this file tests SegmentReader independently of Segment.
+
+TEST_CASE("a Continuation with no chain open is skipped, not mistaken for anything")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    wire::ContinuationPayload contPrefix{};
+    contPrefix.siteId_ = 1u;
+    contPrefix.argIndex_ = 0u;
+    std::vector<std::byte> payload;
+    appendRaw(payload, contPrefix);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Continuation, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 0u); // intact on the wire, just orphaned.
+    CHECK(decoder.skippedRecords() == 1u);
+}
+
+TEST_CASE("a Continuation payload shorter than ContinuationPayload itself damages its chain")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x50u, 0u, 1u, Severity::Info, {wire::TypeCode::Bytes}, "{}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload msgPrefix{};
+    msgPrefix.siteId_ = 0x50u;
+    std::vector<std::byte> msgPayload;
+    appendRaw(msgPayload, msgPrefix);
+    appendLengthPrefixed(msgPayload, "hi");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, wire::cFlagContinued, 1, msgPayload);
+
+    // Too small to even carry siteId_ + argIndex_.
+    std::vector<std::byte> tinyPayload(4u, std::byte{0});
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Continuation, 0, 2, tinyPayload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u); // the whole chain, Message included.
+    CHECK(decoder.skippedRecords() == 0u); // consumed as (damaged) part of the chain, not orphaned.
+}
+
+TEST_CASE("a Continuation naming an out-of-range argument index damages its chain")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    // One declared argument (index 0); the Continuation below claims index 5.
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x51u, 0u, 1u, Severity::Info, {wire::TypeCode::Bytes}, "{}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload msgPrefix{};
+    msgPrefix.siteId_ = 0x51u;
+    std::vector<std::byte> msgPayload;
+    appendRaw(msgPayload, msgPrefix);
+    appendLengthPrefixed(msgPayload, "hi");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, wire::cFlagContinued, 1, msgPayload);
+
+    wire::ContinuationPayload contPrefix{};
+    contPrefix.siteId_ = 0x51u;
+    contPrefix.argIndex_ = 5u; // out of range: this site declared one argument.
+    std::vector<std::byte> contPayload;
+    appendRaw(contPayload, contPrefix);
+    appendBytesRaw(contPayload, "more");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Continuation, 0, 2, contPayload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a Continuation naming a non-Bytes argument index damages its chain")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    // Index 0 is U64, not Bytes -- a Continuation cannot legitimately extend it.
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x52u, 0u, 1u, Severity::Info, {wire::TypeCode::U64, wire::TypeCode::Bytes}, "{} {}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload msgPrefix{};
+    msgPrefix.siteId_ = 0x52u;
+    std::vector<std::byte> msgPayload;
+    appendRaw(msgPayload, msgPrefix);
+    appendRaw<std::uint64_t>(msgPayload, 9u);
+    appendLengthPrefixed(msgPayload, "hi");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, wire::cFlagContinued, 1, msgPayload);
+
+    wire::ContinuationPayload contPrefix{};
+    contPrefix.siteId_ = 0x52u;
+    contPrefix.argIndex_ = 0u; // the U64 slot, not the Bytes one.
+    std::vector<std::byte> contPayload;
+    appendRaw(contPayload, contPrefix);
+    appendBytesRaw(contPayload, "more");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Continuation, 0, 2, contPayload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+TEST_CASE("a chain interrupted by an unrelated record is damaged, but that record still decodes")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 512u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    const auto def1 = buildSiteDefinitionPayload(
+        0x60u, 0u, 1u, Severity::Info, {wire::TypeCode::Bytes}, "{}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, def1);
+    const auto def2 = buildSiteDefinitionPayload(0x61u, 0u, 2u, Severity::Info, {}, "plain", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 1, def2);
+
+    // Message 1 promises a chain that never arrives -- the very next record
+    // is an ordinary Message for a different site instead of a Continuation.
+    wire::MessagePayload msg1Prefix{};
+    msg1Prefix.siteId_ = 0x60u;
+    std::vector<std::byte> msg1;
+    appendRaw(msg1, msg1Prefix);
+    appendLengthPrefixed(msg1, "hi");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, wire::cFlagContinued, 2, msg1);
+
+    wire::MessagePayload msg2Prefix{};
+    msg2Prefix.siteId_ = 0x61u;
+    std::vector<std::byte> msg2;
+    appendRaw(msg2, msg2Prefix);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 3, msg2);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    REQUIRE(records.size() == 1u); // only the second, unrelated message.
+    CHECK(records[0].site_->siteId_ == 0x61u);
+    CHECK(decoder.undecodableRecords() == 1u); // the first message's broken promise.
+}
+
+TEST_CASE("a chain still open at the end of the stream is damaged, not silently dropped")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x70u, 0u, 1u, Severity::Info, {wire::TypeCode::Bytes}, "{}", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload msgPrefix{};
+    msgPrefix.siteId_ = 0x70u;
+    std::vector<std::byte> msgPayload;
+    appendRaw(msgPayload, msgPrefix);
+    appendLengthPrefixed(msgPayload, "hi");
+    // Promises a chain, then the chunk simply ends -- no Continuation, no
+    // further record of any kind.
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, wire::cFlagContinued, 1, msgPayload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    CHECK(records.empty());
+    CHECK(decoder.undecodableRecords() == 1u);
+}
+
+// ---------------------------------------------------------------------------
+// (6d) Two-pass robustness: decodeAll collects every definition before
+// resolving any message (reader.hpp's own comment: "file order is not
+// definition order"). A real producer always writes a site's definition
+// before that site's first message in the same chunk, so this ordering
+// never actually happens today -- but the two-pass design was specifically
+// built to not depend on that, and this is the adversarial proof: a message
+// physically first, its definition physically after it, still decodes.
+
+TEST_CASE("a Message physically preceding its own SiteDefinition still decodes")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 1u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampChunk(0, builder.generation(), 1u);
+
+    wire::MessagePayload msgPrefix{};
+    msgPrefix.siteId_ = 0x80u;
+    msgPrefix.monoNs_ = 5u;
+    std::vector<std::byte> msgPayload;
+    appendRaw(msgPayload, msgPrefix);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, msgPayload);
+
+    const auto defPayload =
+        buildSiteDefinitionPayload(0x80u, 0u, 1u, Severity::Info, {}, "late definition", "s.cpp");
+    cursor = builder.writeRecord(cursor, wire::RecordKind::SiteDefinition, 0, 1, defPayload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+    Decoder decoder;
+    const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+
+    REQUIRE(records.size() == 1u);
+    CHECK(decoder.undecodableRecords() == 0u);
+    REQUIRE(records[0].site_ != nullptr);
+    CHECK(records[0].site_->format_ == "late definition");
+}
+
+// ---------------------------------------------------------------------------
+// (6e) Exhaustive corruption sweep, not a probabilistic fuzz: every byte
+// offset of a small, realistic segment is flipped to every other possible
+// byte value exactly once (255 values x every offset), and the full
+// SegmentReader + Decoder pipeline is run over the result. Exhaustive is
+// affordable here because the image is small, and it is strictly stronger
+// evidence for "never crashes, never misaccounts" than any number of random
+// trials over a much larger one would be -- every single-byte corruption
+// this format can ever see is covered, not a sample of them.
+
+TEST_CASE("exhaustive single-byte corruption of a small segment never crashes or misaccounts")
+{
+    // SegmentReader::open's very first check is `image.size() <
+    // wire::cSegmentHeaderBytes` -- a fixed 4096, independent of whatever
+    // headerBytes_ a hand-built header declares -- so headerBytes below
+    // must be the real constant, not a smaller value, or every image here
+    // would fail at TooSmall before a single mutation was even interesting
+    // (caught by first running this test: 81600/81600 mutations came back
+    // invalid, all of them TooSmall, none of them the corruption this test
+    // means to exercise).
+    //
+    // The sweep itself still only covers the bytes SegmentReader ever
+    // actually reads, not all 4096+ of them: the structured SegmentHeader
+    // (the first sizeof(wire::SegmentHeader) bytes) and the real chunk
+    // data starting at headerBytes. Everything between those two ranges is
+    // header-page padding no reader touches (cNextChunkOffset's atomic
+    // cursor included -- that is Segment::claimChunk()'s state, on the
+    // producer side, never SegmentReader's) -- exhaustively flipping it
+    // would cost 4096-ish times the iterations to cover bytes this class
+    // provably never looks at.
+    constexpr std::uint32_t headerBytes = wire::cSegmentHeaderBytes;
+    constexpr std::uint32_t chunkBytes = 128u; // wire::cChunkSizeUnit: the smallest real chunk size.
+    constexpr std::uint32_t chunkCount = 2u;
+
+    SegmentImageBuilder builder(headerBytes, chunkBytes, chunkCount, /*generation=*/77u, 1u, 3u, 4u);
+
+    std::uint64_t cursor0 = builder.stampOwnedChunkWithChecksum(0, 1u, /*claimMonoNs=*/10u, 0u);
+    const auto defPayload = buildSiteDefinitionPayload(
+        0x55u, 0u, 1u, Severity::Info, {wire::TypeCode::U64, wire::TypeCode::Bytes}, "{} {}", "f.cpp");
+    cursor0 = builder.writeRecord(cursor0, wire::RecordKind::SiteDefinition, 0, 0, defPayload);
+
+    wire::MessagePayload msgPrefix{};
+    msgPrefix.siteId_ = 0x55u;
+    msgPrefix.monoNs_ = 42u;
+    std::vector<std::byte> msgPayload;
+    appendRaw(msgPayload, msgPrefix);
+    appendRaw<std::uint64_t>(msgPayload, 7u);
+    appendLengthPrefixed(msgPayload, "hi");
+    cursor0 = builder.writeRecord(cursor0, wire::RecordKind::Message, 0, 1, msgPayload);
+    (void)cursor0;
+
+    std::uint64_t cursor1 = builder.stampOwnedChunkWithChecksum(1, 2u, /*claimMonoNs=*/20u, 0u);
+    cursor1 = builder.writeRecord(cursor1, wire::RecordKind::Message, 0, 0, msgPayload);
+    (void)cursor1;
+
+    const std::vector<std::byte> original(builder.span().begin(), builder.span().end());
+    REQUIRE(original.size() == headerBytes + static_cast<std::uint64_t>(chunkCount) * chunkBytes);
+
+    std::vector<std::size_t> positions;
+    for (std::size_t pos = 0; pos < sizeof(wire::SegmentHeader); ++pos) {
+        positions.push_back(pos);
+    }
+    for (std::size_t pos = headerBytes; pos < headerBytes + chunkCount * chunkBytes; ++pos) {
+        positions.push_back(pos);
+    }
+
+    for (const std::size_t pos : positions) {
+        CAPTURE(pos);
+        const auto originalByte = static_cast<unsigned>(std::to_integer<std::uint8_t>(original[pos]));
+        std::vector<std::byte> mutated = original;
+
+        for (unsigned value = 0; value < 256u; ++value) {
+            if (value == originalByte) {
+                continue; // that is the known-good byte; every other test already covers it.
+            }
+            mutated[pos] = static_cast<std::byte>(value);
+
+            SegmentReader reader = SegmentReader::open(mutated);
+            if (!reader.valid()) {
+                continue; // rejected at the header: nothing further to walk.
+            }
+
+            Decoder decoder;
+            const std::vector<DecodedRecord> records = decoder.decodeAll(reader);
+            (void)records;
+
+            // Bounded by the segment's own *declared* body size, not by
+            // mutated.size() -- caught here on the first version of this
+            // test, which asserted the latter and failed at pos 25 (inside
+            // segmentBytes_ itself): a corrupted segmentBytes_ claiming a
+            // segment far larger than the image physically handed to the
+            // reader is exactly the legitimate truncated-tail case R3.3
+            // exists for (a real multi-GB segment truncated to a few KB
+            // reports a correspondingly huge unreadableBytes(), correctly),
+            // not a bug -- SegmentReader::visit's own comment already notes
+            // this is one arithmetic step specifically so an untrusted
+            // segmentBytes_ cannot turn it into an unbounded *loop*; it says
+            // nothing about bounding the physical image, because it does
+            // not need to. What must always hold, corruption or not, is
+            // that nothing gets counted past the segment's own declared
+            // body -- headerBytes_ was already checked <= image.size() (a
+            // real, physical fact) before this point, but segmentBytes_
+            // never is, on purpose.
+            const std::uint64_t declaredBodyBytes =
+                reader.header().segmentBytes_ - reader.header().headerBytes_;
+            CHECK(reader.unreadableBytes() <= declaredBodyBytes);
+            CHECK(reader.unwrittenBytes() <= declaredBodyBytes);
+            CHECK(reader.accountedBytes() <= declaredBodyBytes);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // (7) Header validation: short image, bad magic, wrong version, bad geometry.
 
 TEST_CASE("SegmentReader::open validates size, magic, version and geometry in order")
