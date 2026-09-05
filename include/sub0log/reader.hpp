@@ -371,18 +371,26 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
             break;
         }
 
-        const std::uint64_t nominalEnd = chunkStart + header_.chunkBytes_;
-        const std::uint64_t chunkLogicalEnd = std::min(nominalEnd, segEnd);
-        const std::uint64_t chunkNominalBytes = chunkLogicalEnd - chunkStart;
-        const std::uint64_t presentEnd = std::min(chunkLogicalEnd, imageBytes);
-        const std::uint64_t availableInChunk = presentEnd - chunkStart;
-        const std::uint64_t missingTail = chunkNominalBytes - availableInChunk;
+        // We don't yet know this chunk's real size -- that needs a header
+        // read, and a genuinely variable-size segment's chunks can differ
+        // from header_.chunkBytes_ (docs/vnext-adaptive-chunk-sizing.md).
+        // But reading a header only ever needs sizeof(ChunkHeader) bytes to
+        // be physically present, independent of any chunk's actual size,
+        // so header_.chunkBytes_ is used here purely as a bound for *this*
+        // truncation check -- there is no real header yet to consult, and
+        // once one exists below it is not trusted past this point.
+        const std::uint64_t fallbackNominalEnd = chunkStart + header_.chunkBytes_;
+        const std::uint64_t fallbackLogicalEnd = std::min(fallbackNominalEnd, segEnd);
+        const std::uint64_t fallbackNominalBytes = fallbackLogicalEnd - chunkStart;
+        const std::uint64_t fallbackAvailable =
+            std::min(fallbackLogicalEnd, imageBytes) - chunkStart;
+        const std::uint64_t fallbackMissingTail = fallbackNominalBytes - fallbackAvailable;
 
-        if (availableInChunk < sizeof(wire::ChunkHeader)) {
+        if (fallbackAvailable < sizeof(wire::ChunkHeader)) {
             // Not even the chunk header survived the truncation: nothing in
             // this chunk is usable evidence, count the whole nominal chunk.
-            unreadableBytes_ += chunkNominalBytes;
-            chunkStart = nominalEnd;
+            unreadableBytes_ += fallbackNominalBytes;
+            chunkStart = fallbackNominalEnd;
             ++chunkIndex;
             continue;
         }
@@ -394,9 +402,11 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
             // Never claimed: a segment is created at full size, so this is
             // simply the part of it the producer had not reached. Nothing
             // was lost here, and calling it damage would drown the number
-            // that matters.
-            unwrittenBytes_ += chunkNominalBytes;
-            chunkStart = nominalEnd;
+            // that matters. No stamped size exists for space nobody wrote
+            // into, so the segment's own uniform stride is the only
+            // distance that means anything here.
+            unwrittenBytes_ += fallbackNominalBytes;
+            chunkStart = fallbackNominalEnd;
             ++chunkIndex;
             continue;
         }
@@ -404,34 +414,43 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
         if (chunkHead.generation_ != header_.generation_) {
             // A previous generation's chunk in recycled storage: positive
             // evidence, not zero-fill inference (R3.4). The header was
-            // legible, the body is not ours to read.
-            unreadableBytes_ += (availableInChunk - sizeof(wire::ChunkHeader)) + missingTail;
-            chunkStart = nominalEnd;
+            // legible, the body -- and whatever size it might itself
+            // declare -- is not ours to interpret: a stale chunk's
+            // allocation history belongs to a different segment life and
+            // has no bearing on where *this* segment's next real chunk
+            // starts, so this segment's own stride is what advances past
+            // it, not the stale header's own claim.
+            unreadableBytes_ += (fallbackAvailable - sizeof(wire::ChunkHeader)) + fallbackMissingTail;
+            chunkStart = fallbackNominalEnd;
             ++chunkIndex;
             continue;
         }
 
-        if (chunkHead.chunkSizeClass_ != 0u
-            && wire::chunkBytesForSizeClass(chunkHead.chunkSizeClass_) != header_.chunkBytes_) {
-            // 0 ("unspecified") needs no check at all -- it is what every
-            // chunk this format ever wrote before this field existed
-            // already reads as (wire.hpp's cChunkSizeUnit comment), so an
-            // old or best-effort-unrepresentable chunk is untouched by
-            // this. A live producer always stamps its own actual size
-            // (Segment::claimChunk()); a mismatch here means either a
-            // corrupted header or a chunk this reader's fixed stride does
-            // not actually hold for -- both are damage, not data (R9.2:
-            // more evidence forward on a failure this reader cannot
-            // otherwise classify, not less). This walk still strides by
-            // header_.chunkBytes_ regardless of what it finds here -- this
-            // is validation, not yet navigation; a segment whose chunks
-            // genuinely vary in size is a later phase
-            // (docs/vnext-adaptive-chunk-sizing.md), not this one.
-            unreadableBytes_ += (availableInChunk - sizeof(wire::ChunkHeader)) + missingTail;
-            chunkStart = nominalEnd;
+        // This chunk belongs to the current generation, so its own stamped
+        // size (if present) is real and is this segment's own doing
+        // (Segment::claimChunk() stamped it). A class past cMaxChunkSizeClass
+        // cannot be one this format ever writes -- corrupted or hostile --
+        // and is never decoded into a byte count to steer by: the same
+        // "bounds-check a length before it moves anything" rule R3.3 already
+        // applies to RecordHead::payloadBytes_ below applies here first.
+        std::uint64_t thisChunkBytes;
+        if (chunkHead.chunkSizeClass_ == 0u) {
+            thisChunkBytes = header_.chunkBytes_;
+        } else if (chunkHead.chunkSizeClass_ <= wire::cMaxChunkSizeClass) {
+            thisChunkBytes = wire::chunkBytesForSizeClass(chunkHead.chunkSizeClass_);
+        } else {
+            unreadableBytes_ += (fallbackAvailable - sizeof(wire::ChunkHeader)) + fallbackMissingTail;
+            chunkStart = fallbackNominalEnd;
             ++chunkIndex;
             continue;
         }
+
+        const std::uint64_t nominalEnd = chunkStart + thisChunkBytes;
+        const std::uint64_t chunkLogicalEnd = std::min(nominalEnd, segEnd);
+        const std::uint64_t chunkNominalBytes = chunkLogicalEnd - chunkStart;
+        const std::uint64_t presentEnd = std::min(chunkLogicalEnd, imageBytes);
+        const std::uint64_t availableInChunk = presentEnd - chunkStart;
+        const std::uint64_t missingTail = chunkNominalBytes - availableInChunk;
 
         const std::uint64_t bodyStart = chunkStart + sizeof(wire::ChunkHeader);
         const std::uint64_t bodyEnd = chunkStart + availableInChunk;

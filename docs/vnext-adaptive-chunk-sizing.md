@@ -5,11 +5,15 @@ stayed entirely at file granularity and never touched the wire format;
 this does, because the problem it addresses -- a thread's chunk claim
 being permanently the wrong size for how much that thread actually logs
 (`docs/memory.md`, "A thread costs a whole chunk, permanently") -- cannot
-be fixed at file granularity at all. Split into two phases on purpose:
-Phase 1 (below) is implemented and merged, and deliberately does nothing
-new observable -- it exists to put the self-describing wire format
-through real use before anything depends on it varying. Phase 2 is the
-actual adaptive policy, and is not built.
+be fixed at file granularity at all. Split into phases on purpose. Phase 1
+(below) is implemented and merged, and deliberately changed nothing
+observable -- it put the self-describing wire format through real use
+while every chunk in a segment stayed the same size, exactly as before.
+Phase 1.5, also implemented, makes the reader genuinely self-describing:
+it can now correctly decode a segment whose chunks actually differ in
+size. What remains -- an allocator that ever produces such a segment, and
+the actual per-thread growth/shrink policy -- is Phase 2, and is not
+built.
 
 ## Why this is a wire-format change and rollover wasn't
 
@@ -91,36 +95,86 @@ choice to be, which matches this format's habit of degrading rather than
 refusing wherever a degraded answer is still an honest one (R3.3's whole
 "read what you can, count what you cannot").
 
-**What the reader actually does with it.** `SegmentReader::visit()`
-(`reader.hpp:414`) still strides by `header_.chunkBytes_`, unchanged --
-this phase is validation, not navigation. When a claimed chunk's stamped
-class is non-zero, it's cross-checked against `header_.chunkBytes_`;
-agreement costs nothing extra, and a mismatch is counted as damage
-(R9.2: more evidence forward on a failure this reader cannot otherwise
-classify, not less) rather than trusted or silently ignored. A segment
-whose chunks actually differ in size cannot be read correctly by this
-phase's reader at all -- that is Phase 2's problem, not this one's, and
-is why Phase 1 changes nothing about what `Segment::create()` produces
-by default.
+**What Phase 1's reader did with it.** `SegmentReader::visit()` still
+strode by `header_.chunkBytes_` unchanged -- that phase was validation,
+not navigation. When a claimed chunk's stamped class was non-zero, it was
+cross-checked against `header_.chunkBytes_`; agreement cost nothing
+extra, a mismatch was counted as damage. A segment whose chunks actually
+differed in size could not be read correctly at all. That was deliberate
+scope, not a limitation left standing -- Phase 1.5 replaces it.
 
-**Proof, not assertion.** `tests/unit/wire.test.cpp` covers the encoding
-in isolation (round-trip across every size this codebase uses, the
-unrepresentable case, the ceiling, the sentinel default).
-`tests/integration/reader.test.cpp` covers the reader's cross-check
-against hand-built segment images: agreement, the unspecified sentinel
-explicitly (not left as an implicit consequence of every other test
-still passing), and a genuine mismatch counted as damage rather than
-decoded. All 100 tests in the suite (93 before this phase, 7 added by
-it) pass, including every existing test that configures a non-default
-chunk size -- 128, 256, 1024, 4096, 16384 bytes -- none of which needed
-to change. Checked clean under ASan+UBSan as well as a plain build, not
-only the plain one.
+**Proof, not assertion, for Phase 1.** `tests/unit/wire.test.cpp` covers
+the encoding in isolation (round-trip across every size this codebase
+uses, the unrepresentable case, the ceiling, the sentinel default).
 
-## Phase 2: the actual adaptive policy -- not built
+## Phase 1.5: the reader becomes genuinely self-describing -- shipped
 
-This is what "adaptive chunk sizing" was asked for in the first place,
-and it is still exactly the shape argued through in the conversation
-this document is written up from, unimplemented:
+`SegmentReader::visit()` (`reader.hpp`) no longer treats
+`header_.chunkBytes_` as ground truth for a claimed chunk. For a chunk
+whose `generation_` matches the segment's own, its size is now: its own
+stamped `chunkSizeClass_` if that's non-zero *and* no greater than
+`wire::cMaxChunkSizeClass`; `header_.chunkBytes_` otherwise (the class-0
+sentinel, or a best-effort-unrepresentable size from `Segment::create()`
+-- both mean the same "defer to the segment default" as before). Phase
+1's cross-check -- flagging a differently-sized chunk as damage -- is
+gone; a differently-sized chunk is now legitimately different, not wrong.
+
+**The bounds-check this needed, found before it was written.**
+`chunkSizeClass_` is read from an untrusted image -- once navigation
+*trusts* it rather than only cross-checking it, an out-of-range value
+(anything past `cMaxChunkSizeClass`, which nothing this format ever
+writes stamps) would otherwise decode into a wildly wrong stride, or
+worse: `chunkBytesForSizeClass()`'s own precondition (`sizeClass` in
+`[1, cMaxChunkSizeClass]`) means a class of, say, 200 shifts a 32-bit
+value by 199 bits -- undefined behaviour, not merely a wrong answer.
+Caught before writing the navigation change by asking what happens to an
+adversarial or corrupted value, not discovered by it happening: a class
+past the ceiling is treated exactly like a torn record already is
+(`RecordHead::payloadBytes_` bounds-checked before use, right below this
+in the same function) -- damage, decoding stopped, never turned into a
+byte count that steers anything. Tested directly (`tests/integration/
+reader.test.cpp`, "a stamped size class past the format's own ceiling is
+damage, never decoded into a stride").
+
+**Unclaimed space still uses the segment-wide default, and that remains
+correct, not merely convenient.** A never-claimed chunk (`generation_ ==
+0`) has no stamped size -- nobody wrote a real header there -- so it is
+still stepped through at `header_.chunkBytes_`, one slot at a time,
+exactly as before. For every allocator that exists today (uniform claims
+only), this is exact. For a future allocator whose claims vary (Phase
+2's still-unbuilt half), it stays *correct* though not maximally
+efficient: such an allocator can only ever leave unclaimed space as a
+single trailing run (nothing is ever claimed past where its own cursor
+stopped), so this loop simply keeps re-finding `generation_ == 0` at
+each `header_.chunkBytes_`-sized step until it reaches the segment's own
+end, counting all of it as unwritten -- more iterations than the
+single-arithmetic-step shortcut originally sketched for this problem
+would take, but never a wrong answer, and never at risk of stepping over
+real data hiding in the gap, because a byte-offset-cursor allocator
+never leaves one there to step over. That shortcut remains available as
+a later optimisation; it was never a correctness requirement, which is
+why Phase 1.5 shipped without it.
+
+**Proof, not assertion, for Phase 1.5.** `tests/integration/reader.test.cpp`:
+a chunk stamped smaller than the segment default is read as that smaller
+chunk, record and all, with the true remainder correctly counted as
+unwritten rather than flagged as damage; the out-of-range-class case
+above; and -- the actual point -- two chunks of genuinely different
+sizes (128 and 512 bytes), laid out back to back the way a variable-size
+allocator would place them, hand-built at the byte level and decoded
+correctly in one pass, in order, each found starting exactly where the
+one before it actually ended rather than where a fixed stride would have
+guessed. 102/102 tests in the suite (100 before this change, 1 rewritten
+because it tested the now-superseded cross-check, 3 added), clean under
+a plain build and under ASan+UBSan both.
+
+## Phase 2: an allocator that varies, and the actual policy -- not built
+
+This is what "adaptive chunk sizing" was asked for in the first place.
+The reader can now correctly decode whatever such an allocator produces;
+producing it, and deciding what size to ask for, is still exactly the
+shape argued through in the conversation this document is written up
+from, unimplemented:
 
 - A thread's **first** claim in a fresh segment starts small.
 - **Growth** on repeated exhaustion: a thread that fills its chunk and
@@ -140,34 +194,26 @@ this document is written up from, unimplemented:
   per chunk, so a second thread resuming one would misattribute its
   records to the first).
 
-**What Phase 1 already resolved for this phase, so Phase 2 does not have
-to re-derive it:** the encoding, the sentinel-based backward
-compatibility, and the unit/ceiling choice are all already settled and
-tested. What Phase 2 still needs, precisely:
+**What Phases 1 and 1.5 already resolved, so Phase 2 does not have to
+re-derive any of it:** the encoding, the sentinel-based backward
+compatibility, the unit/ceiling choice, and -- as of Phase 1.5 -- a
+reader that already decodes a genuinely variable-size segment correctly,
+including its adversarial edges (an out-of-range stamped class, an
+unclaimed stretch that isn't stride-aligned). What Phase 2 still needs,
+precisely, is now only the *producer* side:
 
-- **The reader's walk has to stop trusting `header_.chunkBytes_` for
-  navigation and become genuinely self-describing** -- stride by each
-  claimed chunk's own decoded size rather than a segment-wide constant.
-  Phase 1 deliberately did not build this, because it interacts with a
-  real, previously-unresolved question:
-- **How does a reader walk past a stretch of never-claimed space when
-  chunks vary in size, given an unclaimed region carries no stamped
-  size at all (`generation_ == 0`, always-zero bytes)?** Resolved by an
-  observation about the allocator this phase would pair with rather than
-  by inventing new bookkeeping: if `Segment::claimChunk()`'s cursor
-  becomes a byte-offset `fetch_add(requestedBytes)` rather than an
-  index `fetch_add(1)` scaled by a fixed size (necessary anyway, to let
-  claims actually vary in size), claimed regions are laid out in
-  strictly increasing byte-offset order with no gaps and no unclaimed
-  region ever sandwiched between two claimed ones. An unclaimed region
-  can only ever be the single, contiguous *suffix* of the segment -- the
-  first chunk a reader finds with `generation_ == 0` marks the end of
-  all real data, and everything after it is countable in one arithmetic
-  step, exactly like this reader already handles a physically truncated
-  image (`reader.hpp`'s existing "everything from here to the declared
-  end of the segment is physically absent" case). No new mechanism
-  needed for this; the existing truncated-tail handling already is that
-  mechanism, once the allocator guarantees the ordering.
+- **An allocator whose claims actually vary.** `Segment::claimChunk()`
+  today claims exactly `chunkBytes_` every time, via `fetch_add(1)` on an
+  index cursor scaled by that one fixed size. Letting a claim's size vary
+  means the cursor has to track cumulative *bytes* requested rather than
+  a *count* of uniform units -- a `fetch_add(requestedBytes)` returning
+  the offset before the add, checked afterward against the segment's
+  true remaining space, is the natural shape and needs no CAS: an
+  overshooting claim simply marks the segment exhausted for everyone
+  after it, exactly as an index past `chunkCount_` already does today --
+  there is no free list to give a smaller, later request access to
+  whatever the overshoot left behind, so nothing is lost by not trying to
+  recover it.
 - **Where a thread's running size history lives, and that it survives
   rollover rather than resetting with it.** The natural home is the same
   `thread_local WriterCache` (`instance.hpp`) already used for the
@@ -182,24 +228,28 @@ tested. What Phase 2 still needs, precisely:
 
 ## What this does not change
 
-Everything Phase 1 shipped is additive and default-preserving:
-`Segment::create()` produces byte-for-byte the same segment for the same
-`SegmentOptions` as before this work, `SegmentReader::visit()`'s
-navigation is untouched, and every value this codebase has ever
-configured anywhere continues to work without modification. R1.3 (no
-lock on the producer path) is untouched -- `claimChunk()` stamps an
-already-validated class, never computes one on the emit path. R3.1/R3.2
-are untouched -- nothing here changes when or how a record becomes
-durable, only how its chunk's size is recorded. `REQUIREMENTS.md`'s
-"Explicitly out of scope" stance on rotation policy is unaffected, same
-as `vnext-segment-rollover.md`; this document is about allocation
-granularity, a different axis entirely.
+`Segment::create()` still produces byte-for-byte the same segment for
+the same `SegmentOptions` as before any of this work -- Phase 1.5 changed
+what the reader is *able* to decode, not what the producer actually
+writes by default, and every value this codebase has ever configured
+anywhere continues to work without modification. R1.3 (no lock on the
+producer path) is untouched -- `claimChunk()` stamps an already-validated
+class, never computes one on the emit path, and nothing in Phase 1.5
+touches the producer at all. R3.1/R3.2 are untouched -- nothing here
+changes when or how a record becomes durable, only how a reader locates
+one. `REQUIREMENTS.md`'s "Explicitly out of scope" stance on rotation
+policy is unaffected, same as `vnext-segment-rollover.md`; this document
+is about allocation granularity, a different axis entirely.
 
 ## Status
 
-Phase 1: implemented, tested (100/100, including ASan+UBSan), merged.
-Phase 2: argued through in this document and in the conversation it
-formalises, not built. The two open questions Phase 1 could not resolve
-in advance -- self-describing navigation past unclaimed space, and where
-a thread's size history lives across a rollover boundary -- both have
-answers recorded above rather than left for Phase 2 to rediscover.
+Phase 1 and Phase 1.5: implemented, tested (102/102, including
+ASan+UBSan), merged. Phase 2 (an allocator that actually varies claim
+sizes, and the growth/shrink policy deciding what to ask for): argued
+through in this document and in the conversation it formalises, not
+built. What used to be Phase 2's two open design questions -- how a
+self-describing reader walks past unclaimed space, and where a thread's
+size history lives across a rollover boundary -- are down to one: the
+navigation question is answered in code, not just in this document
+anymore; only the thread-history question remains for whenever an
+allocator exists to need it.

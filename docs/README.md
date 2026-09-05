@@ -91,14 +91,17 @@ shape is the one that survives contact with R1.3 and R3.1/R3.2.
 not a layer of it -- it addresses the other half of `docs/memory.md`'s "a
 thread costs a whole chunk, permanently," and unlike rollover it does touch
 the wire format. Phase 1 (a per-chunk, purely additive size field --
-`wire::ChunkHeader::chunkSizeClass_` -- validated against real reads and
-writes while every chunk in a segment stays exactly the same size, exactly
-as before) is implemented and tested. Phase 2 -- a thread's claim actually
-starting small and growing or shrinking on its own history -- is argued
-through in full but not built, including the two questions Phase 1's design
-had to answer before Phase 2 could: how a self-describing reader walks past
-unclaimed space when chunks vary in size, and where a thread's size history
-lives so it survives a rollover instead of resetting with it.
+`wire::ChunkHeader::chunkSizeClass_` -- validated while every chunk in a
+segment stayed exactly the same size) and Phase 1.5 (the reader made
+genuinely self-describing: it now correctly decodes a segment whose chunks
+actually differ in size, including the out-of-range-class and
+unclaimed-space edge cases that needed bounds-checking before trusting a
+per-chunk length the same way `RecordHead::payloadBytes_` already is) are
+both implemented and tested. Phase 2 -- an allocator whose claims actually
+vary, and a thread's claim starting small and growing or shrinking on its
+own history -- is argued through in full but not built; the one open
+design question left for it is where a thread's size history lives so it
+survives a rollover instead of resetting with it.
 
 **`record-model.md`** covers keeping the constant half of a call site out of the
 record, why a site definition must be written by the producer rather than

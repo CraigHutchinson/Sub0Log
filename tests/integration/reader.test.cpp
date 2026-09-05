@@ -267,13 +267,21 @@ TEST_CASE("the unspecified size class (0) is trusted exactly as an old segment a
     CHECK(damage == 0u);
 }
 
-TEST_CASE("a stamped size class that disagrees with the segment's is damage, not trusted data")
+TEST_CASE("a chunk stamped smaller than the segment default is trusted, not treated as damage")
 {
+    // Self-describing navigation (docs/vnext-adaptive-chunk-sizing.md,
+    // Phase 2): a chunk's own stamped size is now the real one, so a
+    // segment built with chunkBytes_=256 whose one chunk actually declares
+    // 128 reads as a genuinely 128-byte chunk -- record and all -- with
+    // the true remainder correctly re-synced onto as legitimately
+    // unwritten space, not flagged as damage the way Phase 1's
+    // cross-check (superseded by this navigation change, not kept beside
+    // it) would have.
     SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 3u, 1u, 0u, 0u);
-    const auto wrongClass = wire::sizeClassForChunkBytes(128u); // half of what this segment declares
-    REQUIRE(wrongClass.has_value());
+    const auto smallerClass = wire::sizeClassForChunkBytes(128u); // half of what this segment declares
+    REQUIRE(smallerClass.has_value());
 
-    std::uint64_t cursor = builder.stampOwnedChunkWithSizeClass(0, 1u, *wrongClass);
+    std::uint64_t cursor = builder.stampOwnedChunkWithSizeClass(0, 1u, *smallerClass);
     std::vector<std::byte> payload;
     appendRaw<std::uint32_t>(payload, 1u);
     cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
@@ -285,11 +293,104 @@ TEST_CASE("a stamped size class that disagrees with the segment's is damage, not
     std::size_t seen = 0;
     const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
 
-    // The disagreement is caught before a single record from this chunk is
-    // trusted -- exactly like a stale generation, the whole body is damage
-    // rather than a mismatched few bytes of it.
+    CHECK(seen == 1u);
+    CHECK(damage == 0u);
+    // Unwritten space comes from two places, both absence rather than
+    // loss: 80 bytes inside chunk 0's own 128-byte body (96 bytes of body
+    // past the ChunkHeader, less the 16 the one small record consumes),
+    // plus the 128 bytes beyond it that were part of the original
+    // 256-byte allocation but past what this chunk actually declared --
+    // this segment's own remaining, never-claimed space.
+    CHECK(reader.unwrittenBytes() == 80u + 128u);
+}
+
+TEST_CASE("a stamped size class past the format's own ceiling is damage, never decoded into a stride")
+{
+    // Not a real class this format ever writes (Segment::claimChunk()
+    // never stamps past wire::cMaxChunkSizeClass) -- corrupted or hostile,
+    // and never turned into a byte count to steer navigation by, the same
+    // "bounds-check a length before it moves anything" rule R3.3 already
+    // applies to RecordHead::payloadBytes_.
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 7u, 1u, 0u, 0u);
+    REQUIRE(wire::cMaxChunkSizeClass < 255u); // the test value below must actually be out of range
+    std::uint64_t cursor =
+        builder.stampOwnedChunkWithSizeClass(0, 1u, static_cast<std::uint8_t>(255u));
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
     CHECK(seen == 0u);
     CHECK(damage == builder.chunkBytes() - sizeof(wire::ChunkHeader));
+}
+
+TEST_CASE("chunks of genuinely different sizes in one segment decode in order, back to back")
+{
+    // The actual point of self-describing navigation: two chunks that are
+    // not the same size, laid out back to back exactly as a variable-size
+    // allocator would place them, both decode correctly in one pass. Built
+    // by hand at the byte level (a real variable-size allocator is
+    // Phase 2's still-unbuilt half, docs/vnext-adaptive-chunk-sizing.md) --
+    // this proves the reader side of that future allocator already works.
+    const auto smallClass = wire::sizeClassForChunkBytes(128u);
+    const auto bigClass = wire::sizeClassForChunkBytes(512u);
+    REQUIRE(smallClass.has_value());
+    REQUIRE(bigClass.has_value());
+
+    const std::uint32_t headerBytes = wire::cSegmentHeaderBytes;
+    const std::uint64_t segmentBytes = headerBytes + 128u + 512u;
+    SegmentImageBuilder builder(headerBytes, /*chunkBytes=*/128u, /*chunkCount=*/1u,
+                                /*generation=*/21u, 1u, 0u, 0u);
+    // The builder's own constructor sizes the image from chunkBytes*chunkCount;
+    // grow it to hold both chunks (128 + 512), and correct the header's
+    // declared segmentBytes_ to match -- SegmentReader trusts that field as
+    // the walk's own upper bound (segEnd), independent of chunkBytes_.
+    std::vector<std::byte> raw(builder.span().begin(), builder.span().end());
+    raw.resize(segmentBytes, std::byte{0});
+    wire::SegmentHeader h = wire::loadUnaligned<wire::SegmentHeader>(raw.data());
+    h.segmentBytes_ = segmentBytes;
+    wire::storeUnaligned(raw.data(), h);
+
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 111u);
+
+    // Chunk A: offset headerBytes, declares 128 bytes.
+    {
+        wire::ChunkHeader ch{21u, 1u, 0u};
+        ch.chunkSizeClass_ = *smallClass;
+        wire::storeUnaligned(raw.data() + headerBytes, ch);
+        const wire::RecordHead head{static_cast<std::uint16_t>(payload.size()), wire::RecordKind::Message};
+        std::memcpy(raw.data() + headerBytes + sizeof(wire::ChunkHeader) + 8, payload.data(), payload.size());
+        wire::storeUnaligned(raw.data() + headerBytes + sizeof(wire::ChunkHeader), head.pack());
+    }
+    // Chunk B: offset headerBytes + 128 (chunk A's own declared size, not
+    // a fixed 256-byte stride), declares 512 bytes.
+    const std::uint64_t chunkBOffset = headerBytes + 128u;
+    {
+        wire::ChunkHeader ch{21u, 2u, 0u};
+        ch.chunkSizeClass_ = *bigClass;
+        wire::storeUnaligned(raw.data() + chunkBOffset, ch);
+        const wire::RecordHead head{static_cast<std::uint16_t>(payload.size()), wire::RecordKind::Message};
+        std::memcpy(raw.data() + chunkBOffset + sizeof(wire::ChunkHeader) + 8, payload.data(), payload.size());
+        wire::storeUnaligned(raw.data() + chunkBOffset + sizeof(wire::ChunkHeader), head.pack());
+    }
+
+    SegmentReader reader = SegmentReader::open(raw);
+    REQUIRE(reader.valid());
+
+    std::vector<std::uint64_t> owners;
+    const std::uint64_t damage = reader.visit([&](const RecordView& v) { owners.push_back(v.ownerThread_); });
+
+    CHECK(damage == 0u);
+    REQUIRE(owners.size() == 2u);
+    CHECK(owners[0] == 1u); // chunk A, correctly found at its own declared size
+    CHECK(owners[1] == 2u); // chunk B, found starting at A's real 128 bytes, not a 256-byte guess
 }
 
 // ---------------------------------------------------------------------------
