@@ -80,6 +80,12 @@ private:
     std::uint64_t generation_{0};
     std::uint32_t chunkBytes_{0};
     std::uint32_t chunkCount_{0};
+    /// wire::sizeClassForChunkBytes(chunkBytes_), or 0 ("unspecified") when
+    /// chunkBytes_ is not exactly representable as wire::cChunkSizeUnit << k
+    /// -- purely additive (wire.hpp's cChunkSizeUnit comment), so an
+    /// unrepresentable size still works exactly as it always did, just
+    /// without the per-chunk self-description a representable one gets.
+    std::uint8_t sizeClass_{0};
 };
 
 // ---------------------------------------------------------------------------
@@ -126,6 +132,8 @@ private:
     // one only to have every reader reject it is worse than failing now.
     constexpr std::uint32_t cMinChunkBytes =
         static_cast<std::uint32_t>(sizeof(wire::ChunkHeader)) + 2u * wire::cRecordAlign;
+    static_assert(wire::cChunkSizeUnit >= cMinChunkBytes,
+                  "the smallest representable size class must itself be a valid chunk size");
     if (chunkBytes < cMinChunkBytes || (chunkBytes % wire::cRecordAlign) != 0u
         || (headerBytes % wire::cRecordAlign) != 0u) {
         result.mapping_ = FileMapping{};
@@ -134,6 +142,13 @@ private:
                              "than a chunk header"};
         return result;
     }
+    // Best-effort, never a rejection: a chunkBytes_ that happens not to be
+    // wire::cChunkSizeUnit << k for any k just gets the 0 ("unspecified")
+    // sentinel below, exactly as every chunk size did before this field
+    // existed (wire.hpp's cChunkSizeUnit comment) -- every value this
+    // codebase actually configures anywhere already is representable, but
+    // nothing here requires a caller's choice to be.
+    const std::uint8_t sizeClass = wire::sizeClassForChunkBytes(chunkBytes).value_or(0u);
     const std::uint32_t chunkCount =
         (segmentBytes > headerBytes && chunkBytes > 0u)
             ? static_cast<std::uint32_t>((segmentBytes - headerBytes) / chunkBytes)
@@ -177,6 +192,7 @@ private:
     result.generation_ = generation;
     result.chunkBytes_ = chunkBytes;
     result.chunkCount_ = chunkCount;
+    result.sizeClass_ = sizeClass;
     return result;
 }
 
@@ -201,11 +217,15 @@ private:
     std::byte* const chunkBase =
         base + wire::cSegmentHeaderBytes + static_cast<std::uint64_t>(index) * chunkBytes_;
 
+    // sizeClass_ was validated once, at create() (0 -- "unspecified" -- when
+    // chunkBytes_ was not exactly representable): stamped verbatim here
+    // rather than recomputed, since claimChunk() is the path R1.3 asks to
+    // stay off any per-record cost, let alone a per-chunk lookup loop.
     const wire::ChunkHeader chunkHeader{
         generation_,
         currentThreadId(),
         monotonicNowNs(),
-        0u,
+        sizeClass_,
     };
     wire::storeUnaligned(chunkBase, chunkHeader);
 

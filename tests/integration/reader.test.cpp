@@ -216,6 +216,83 @@ TEST_CASE("a chunk from a stale generation is skipped and its body counted")
 }
 
 // ---------------------------------------------------------------------------
+// (5b) Per-chunk size class (wire::ChunkHeader::chunkSizeClass_), the
+// self-description this format gained alongside adaptive chunk sizing
+// (docs/vnext-adaptive-chunk-sizing.md). Phase 1 of that design keeps every
+// chunk in a segment the same size, exactly as before; what changes is that
+// the size is now *stamped and checked*, not only assumed.
+
+TEST_CASE("a chunk whose stamped size class agrees with the segment decodes with no extra damage")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 55u, 1u, 0u, 0u);
+    const auto sizeClass = wire::sizeClassForChunkBytes(builder.chunkBytes());
+    REQUIRE(sizeClass.has_value());
+
+    std::uint64_t cursor = builder.stampOwnedChunkWithSizeClass(0, 1u, *sizeClass);
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    CHECK(seen == 1u);
+    CHECK(damage == 0u); // agreement costs nothing extra -- only a mismatch does.
+}
+
+TEST_CASE("the unspecified size class (0) is trusted exactly as an old segment always was")
+{
+    // stampChunk() (used by every reader test that predates this field)
+    // always leaves this at 0 -- proof, stated directly rather than left
+    // implicit in every other test file passing, that "unspecified" means
+    // "behave exactly as before", not "assume 128 bytes".
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, wire::cDefaultChunkBytes, 1u, 9u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampOwnedChunk(0, 1u); // size class 0, unchanged from before this field existed
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    CHECK(seen == 1u);
+    CHECK(damage == 0u);
+}
+
+TEST_CASE("a stamped size class that disagrees with the segment's is damage, not trusted data")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 3u, 1u, 0u, 0u);
+    const auto wrongClass = wire::sizeClassForChunkBytes(128u); // half of what this segment declares
+    REQUIRE(wrongClass.has_value());
+
+    std::uint64_t cursor = builder.stampOwnedChunkWithSizeClass(0, 1u, *wrongClass);
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    // The disagreement is caught before a single record from this chunk is
+    // trusted -- exactly like a stale generation, the whole body is damage
+    // rather than a mismatched few bytes of it.
+    CHECK(seen == 0u);
+    CHECK(damage == builder.chunkBytes() - sizeof(wire::ChunkHeader));
+}
+
+// ---------------------------------------------------------------------------
 // (6) Message whose definition is missing.
 
 TEST_CASE("a message with no matching site definition is undecodable, others unaffected")

@@ -411,6 +411,28 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
             continue;
         }
 
+        if (chunkHead.chunkSizeClass_ != 0u
+            && wire::chunkBytesForSizeClass(chunkHead.chunkSizeClass_) != header_.chunkBytes_) {
+            // 0 ("unspecified") needs no check at all -- it is what every
+            // chunk this format ever wrote before this field existed
+            // already reads as (wire.hpp's cChunkSizeUnit comment), so an
+            // old or best-effort-unrepresentable chunk is untouched by
+            // this. A live producer always stamps its own actual size
+            // (Segment::claimChunk()); a mismatch here means either a
+            // corrupted header or a chunk this reader's fixed stride does
+            // not actually hold for -- both are damage, not data (R9.2:
+            // more evidence forward on a failure this reader cannot
+            // otherwise classify, not less). This walk still strides by
+            // header_.chunkBytes_ regardless of what it finds here -- this
+            // is validation, not yet navigation; a segment whose chunks
+            // genuinely vary in size is a later phase
+            // (docs/vnext-adaptive-chunk-sizing.md), not this one.
+            unreadableBytes_ += (availableInChunk - sizeof(wire::ChunkHeader)) + missingTail;
+            chunkStart = nominalEnd;
+            ++chunkIndex;
+            continue;
+        }
+
         const std::uint64_t bodyStart = chunkStart + sizeof(wire::ChunkHeader);
         const std::uint64_t bodyEnd = chunkStart + availableInChunk;
         std::uint64_t cursor = bodyStart;

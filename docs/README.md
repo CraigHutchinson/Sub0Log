@@ -87,6 +87,19 @@ new mechanism, and two rejected alternatives it took working through first
 (growing a mapping in place, compacting a live segment) to see why this
 shape is the one that survives contact with R1.3 and R3.1/R3.2.
 
+**`vnext-adaptive-chunk-sizing.md`** is a sibling to the rollover document,
+not a layer of it -- it addresses the other half of `docs/memory.md`'s "a
+thread costs a whole chunk, permanently," and unlike rollover it does touch
+the wire format. Phase 1 (a per-chunk, purely additive size field --
+`wire::ChunkHeader::chunkSizeClass_` -- validated against real reads and
+writes while every chunk in a segment stays exactly the same size, exactly
+as before) is implemented and tested. Phase 2 -- a thread's claim actually
+starting small and growing or shrinking on its own history -- is argued
+through in full but not built, including the two questions Phase 1's design
+had to answer before Phase 2 could: how a self-describing reader walks past
+unclaimed space when chunks vary in size, and where a thread's size history
+lives so it survives a rollover instead of resetting with it.
+
 **`record-model.md`** covers keeping the constant half of a call site out of the
 record, why a site definition must be written by the producer rather than
 resolved by the reader, where formatting happens, and the four mechanisms for

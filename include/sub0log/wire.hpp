@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <type_traits>
 #include <version>
 
@@ -64,6 +65,59 @@ inline constexpr std::uint64_t cDefaultSegmentBytes = 8ull * 1024u * 1024u;
 
 /// Records and payloads are 8-byte aligned within a chunk.
 inline constexpr std::uint32_t cRecordAlign = 8u;
+
+/// The wire's chunk-size granularity (docs/vnext-adaptive-chunk-sizing.md):
+/// every real, declared chunk size is cChunkSizeUnit << (class - 1) for a
+/// class in [1, cMaxChunkSizeClass], stamped per chunk
+/// (ChunkHeader::chunkSizeClass_) rather than trusted only from the one
+/// segment-wide SegmentHeader::chunkBytes_ value. Class 0 is reserved as
+/// "unspecified, defer to chunkBytes_" -- which is what every chunk this
+/// format ever wrote before this field existed already reads as, since
+/// that byte was silent, always-zero reserved space. That is what makes
+/// this purely additive: an old reader still never looks at it, and a new
+/// reader treats an old chunk's 0 exactly the way it always behaved,
+/// needing no format-version gate for either direction.
+///
+/// 128 is the smallest chunk size already in use anywhere in this
+/// codebase (tests/integration/producer.test.cpp's deliberately
+/// minimum-viable case) -- picking anything smaller would have meant
+/// either breaking that test's intent or widening this field past a
+/// single byte for a configuration nothing here has ever actually used.
+inline constexpr std::uint32_t cChunkSizeUnit = 128u;
+static_assert(cChunkSizeUnit % cRecordAlign == 0u);
+
+/// cChunkSizeUnit << (cMaxChunkSizeClass - 1) is exactly cDefaultSegmentBytes
+/// (8 MiB): a chunk configured larger than the whole default segment would
+/// leave room for at most one of them, so that is a meaningful ceiling to
+/// pick rather than an arbitrary one, with the encoding itself (a full
+/// byte) able to represent far more if that default ever changes.
+inline constexpr std::uint8_t cMaxChunkSizeClass = 17u;
+static_assert((cChunkSizeUnit << (cMaxChunkSizeClass - 1u)) == cDefaultSegmentBytes);
+
+/// Precondition: sizeClass is in [1, cMaxChunkSizeClass]. 0 is the
+/// "unspecified" sentinel above and is never a real size -- every caller
+/// checks for it first (Segment::claimChunk() never stamps it; reader.hpp's
+/// cross-check branches on it before calling this).
+[[nodiscard]] constexpr std::uint32_t chunkBytesForSizeClass(const std::uint8_t sizeClass) noexcept
+{
+    return cChunkSizeUnit << (sizeClass - 1u);
+}
+
+/// The reverse of chunkBytesForSizeClass(): the class encoding `bytes`
+/// exactly, or std::nullopt if `bytes` is not cChunkSizeUnit << k for any
+/// representable k. A cold, once-per-Segment::create() lookup over at most
+/// cMaxChunkSizeClass values -- a closed-form bit trick would work just as
+/// well but would need to be independently reasoned about here for none of
+/// the benefit, since nothing on the emit path ever calls it.
+[[nodiscard]] constexpr std::optional<std::uint8_t> sizeClassForChunkBytes(const std::uint32_t bytes) noexcept
+{
+    for (std::uint8_t sizeClass = 1u; sizeClass <= cMaxChunkSizeClass; ++sizeClass) {
+        if (chunkBytesForSizeClass(sizeClass) == bytes) {
+            return sizeClass;
+        }
+    }
+    return std::nullopt;
+}
 
 /// Inline byte/string payload cap before truncation (per argument).
 inline constexpr std::uint16_t cInlineBytesCap = 512u;
@@ -242,7 +296,12 @@ struct ChunkHeader {
     std::uint64_t generation_;  ///< Must equal SegmentHeader::generation_ (R3.4).
     std::uint64_t ownerThread_; ///< Producer thread id, for R2.2 filtering.
     std::uint64_t claimMonoNs_;
-    std::uint64_t reserved_;
+    /// 0 ("unspecified") or a real class -- see cChunkSizeUnit's own comment
+    /// for what each means and why this is purely additive. Occupies one
+    /// byte of what was, before this field existed, eight bytes of silent
+    /// reserved space; the other seven stay reserved.
+    std::uint8_t chunkSizeClass_{0};
+    std::uint8_t reserved_[7]{};
 };
 static_assert(std::is_trivially_copyable_v<ChunkHeader>);
 static_assert(sizeof(ChunkHeader) == 32u);

@@ -139,6 +139,20 @@ public:
         return stampChunk(index, generation_, ownerThread);
     }
 
+    /// Stamps an owned chunk with an explicit wire::ChunkHeader::
+    /// chunkSizeClass_ instead of the 0 ("unspecified") every method above
+    /// uses -- for tests that exercise the self-description cross-check
+    /// itself, agreement and a deliberately wrong class alike.
+    std::uint64_t stampOwnedChunkWithSizeClass(const std::uint32_t index,
+                                               const std::uint64_t ownerThread,
+                                               const std::uint8_t chunkSizeClass)
+    {
+        const std::uint64_t offset = chunkOffset(index);
+        wire::ChunkHeader ch{generation_, ownerThread, 0, chunkSizeClass};
+        wire::storeUnaligned(image_.data() + offset, ch);
+        return offset + sizeof(wire::ChunkHeader);
+    }
+
     /// Writes one committed record at `cursor` (payload before the head
     /// word -- commit-last). Returns the next cursor.
     std::uint64_t writeRecord(const std::uint64_t cursor, const wire::RecordKind kind,

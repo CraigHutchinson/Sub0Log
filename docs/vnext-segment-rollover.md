@@ -301,6 +301,18 @@ answered them:
   fresh-create one is a measurement question, not a design one, and
   belongs with the benchmark suite once this is built, not decided here.
 
+## A sibling design, not a dependency
+
+`vnext-adaptive-chunk-sizing.md` addresses the other half of the same
+underlying problem (`docs/memory.md`'s "a thread costs a whole chunk,
+permanently") at a different granularity -- how big one thread's claim
+is, rather than how many segments exist over time. The two compose (its
+Phase 2 shrinks a thread's *starting* claim size in the next segment
+based on how it behaved in the last one, which needs rollover to have
+somewhere to observe that boundary), but neither is a prerequisite for
+the other: this document's three layers are complete and useful with
+every chunk in a segment staying the size it always was.
+
 ## Status
 
 Deferred to v3, same as `architecture.md`'s phasing already said before
