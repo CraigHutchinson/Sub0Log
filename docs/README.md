@@ -103,6 +103,18 @@ own history -- is argued through in full but not built; the one open
 design question left for it is where a thread's size history lives so it
 survives a rollover instead of resetting with it.
 
+**`vnext-header-checksum.md`** is the narrowest of the three vNext
+documents: one field, `wire::ChunkHeader::headerChecksum_`, answering
+whether a chunk's own header bytes still say what they said when they
+were stamped -- a question distinct from `chunkSizeClass_`'s "how far do
+I stride." A CRC-32 over the header's four meaningful fields, checked
+before the existing generation-zero branch rather than after, because
+corruption is not obliged to leave `generation_` alone and a reader that
+checked in the other order could misread a corrupted, previously-claimed
+chunk as merely unclaimed. Implemented and tested; not a substitute for
+the still-unbuilt, opt-in, per-record payload CRC `docs/architecture.md`
+already names as a separate design.
+
 **`record-model.md`** covers keeping the constant half of a call site out of the
 record, why a site definition must be written by the producer rather than
 resolved by the reader, where formatting happens, and the four mechanisms for

@@ -9,6 +9,7 @@
 
 #include "support/test_framework.hpp"
 
+#include <cstddef>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -391,6 +392,121 @@ TEST_CASE("chunks of genuinely different sizes in one segment decode in order, b
     REQUIRE(owners.size() == 2u);
     CHECK(owners[0] == 1u); // chunk A, correctly found at its own declared size
     CHECK(owners[1] == 2u); // chunk B, found starting at A's real 128 bytes, not a 256-byte guess
+}
+
+// ---------------------------------------------------------------------------
+// (5c) Header checksum (wire::ChunkHeader::headerChecksum_,
+// docs/vnext-header-checksum.md): the size-class field above answers
+// "how far do I stride", this answers "do I trust what I just read at all"
+// -- corruption of a header's own bytes, not merely a header that
+// disagrees about a length.
+
+TEST_CASE("a chunk whose header checksum matches decodes with no extra damage")
+{
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 41u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampOwnedChunkWithChecksum(0, 1u, /*claimMonoNs=*/777u,
+                                                               /*chunkSizeClass=*/0u);
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    CHECK(seen == 1u);
+    CHECK(damage == 0u); // a real, matching checksum costs nothing extra.
+}
+
+TEST_CASE("a checksum of 0 is trusted exactly as an old segment always was")
+{
+    // stampOwnedChunk() (every reader test above this section) never
+    // stamps a checksum -- proof, stated directly, that "not present"
+    // means "behave exactly as before this field existed", the same
+    // backward-compatibility claim chunkSizeClass_ makes one field over.
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, wire::cDefaultChunkBytes, 1u, 6u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampOwnedChunk(0, 1u);
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    CHECK(seen == 1u);
+    CHECK(damage == 0u);
+}
+
+TEST_CASE("a header whose bytes disagree with its own stamped checksum is damage")
+{
+    // Start from a header that stamped a genuinely matching checksum, then
+    // corrupt one of the fields it covers afterward -- claimMonoNs_, not
+    // the checksum field itself, to prove detection covers the fields the
+    // checksum protects, not merely a self-consistency check on the
+    // checksum bytes alone.
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 12u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampOwnedChunkWithChecksum(0, 1u, /*claimMonoNs=*/1000u, 0u);
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    const std::uint64_t claimMonoNsOffset =
+        builder.chunkOffset(0) + offsetof(wire::ChunkHeader, claimMonoNs_);
+    builder.corruptByte(claimMonoNsOffset, 0xFFu); // claimMonoNs_ was 1000, now something else
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    CHECK(seen == 0u);
+    CHECK(damage == builder.chunkBytes() - sizeof(wire::ChunkHeader));
+    CHECK(reader.unwrittenBytes() == 0u); // this is damage, not legitimately absent data.
+}
+
+TEST_CASE("a checksum mismatch is caught even when corruption zeroes generation_ itself")
+{
+    // The scenario the ordering in SegmentReader::visit() exists for
+    // (docs/vnext-header-checksum.md): corruption is not obliged to leave
+    // generation_ alone. If the checksum were verified anywhere other than
+    // before the generation_==0 branch, a real, previously-claimed chunk
+    // whose generation_ bytes got zeroed would be silently (and wrongly)
+    // read as "never claimed" -- unwritten space, not damage -- exactly
+    // the conflation this check exists to prevent.
+    SegmentImageBuilder builder(wire::cSegmentHeaderBytes, 256u, 1u, 88u, 1u, 0u, 0u);
+    std::uint64_t cursor = builder.stampOwnedChunkWithChecksum(0, 1u, /*claimMonoNs=*/55u, 0u);
+    std::vector<std::byte> payload;
+    appendRaw<std::uint32_t>(payload, 1u);
+    cursor = builder.writeRecord(cursor, wire::RecordKind::Message, 0, 0, payload);
+    (void)cursor;
+
+    const std::uint64_t generationOffset =
+        builder.chunkOffset(0) + offsetof(wire::ChunkHeader, generation_);
+    for (std::uint64_t i = 0; i < sizeof(std::uint64_t); ++i) {
+        builder.corruptByte(generationOffset + i, 0u); // generation_ -> 0, as if never claimed
+    }
+
+    SegmentReader reader = SegmentReader::open(builder.span());
+    REQUIRE(reader.valid());
+
+    std::size_t seen = 0;
+    const std::uint64_t damage = reader.visit([&](const RecordView&) { ++seen; });
+
+    CHECK(seen == 0u);
+    // Reported as damage (positive evidence of a corrupted header), not as
+    // unwritten space (which is what a genuinely never-claimed chunk, or
+    // this same bug with the ordering reversed, would have counted it as).
+    CHECK(damage == builder.chunkBytes() - sizeof(wire::ChunkHeader));
+    CHECK(reader.unwrittenBytes() == 0u);
 }
 
 // ---------------------------------------------------------------------------

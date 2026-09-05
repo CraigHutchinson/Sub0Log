@@ -97,3 +97,60 @@ TEST_CASE("ChunkHeader's size-class field defaults to the unspecified sentinel")
     const wire::ChunkHeader header{1u, 2u, 3u};
     CHECK(header.chunkSizeClass_ == 0u);
 }
+
+TEST_CASE("ChunkHeader's checksum field defaults to the not-present sentinel")
+{
+    // Same reasoning, one field over (docs/vnext-header-checksum.md): a
+    // segment written before headerChecksum_ existed left this byte as
+    // silent, always-zero reserved space, and a reader must keep reading
+    // that as "not present" rather than as a checksum that happens to be 0.
+    const wire::ChunkHeader header{1u, 2u, 3u};
+    CHECK(header.headerChecksum_ == 0u);
+}
+
+TEST_CASE("crc32 matches the known test vector for \"123456789\"")
+{
+    // The standard CRC-32/ISO-HDLC check value, quoted by every
+    // implementation of this exact polynomial (0xEDB88320) -- if this ever
+    // fails, the algorithm changed, not just this codebase's use of it.
+    const auto* const bytes = reinterpret_cast<const std::byte*>("123456789");
+    CHECK(wire::crc32(0u, bytes, 9u) == 0xCBF43926u);
+}
+
+TEST_CASE("crc32 is chainable: one call over N bytes equals two calls over any split")
+{
+    const std::uint8_t data[6] = {1, 2, 3, 4, 5, 6};
+    const auto* const bytes = reinterpret_cast<const std::byte*>(data);
+    const std::uint32_t whole = wire::crc32(0u, bytes, 6u);
+    for (std::size_t split = 0u; split <= 6u; ++split) {
+        const std::uint32_t chained =
+            wire::crc32(wire::crc32(0u, bytes, split), bytes + split, 6u - split);
+        CHECK(chained == whole);
+    }
+}
+
+TEST_CASE("computeChunkHeaderChecksum changes if any checksummed field changes")
+{
+    const std::uint32_t base = wire::computeChunkHeaderChecksum(1u, 2u, 3u, 4u);
+    CHECK(wire::computeChunkHeaderChecksum(9u, 2u, 3u, 4u) != base); // generation
+    CHECK(wire::computeChunkHeaderChecksum(1u, 9u, 3u, 4u) != base); // ownerThread
+    CHECK(wire::computeChunkHeaderChecksum(1u, 2u, 9u, 4u) != base); // claimMonoNs
+    CHECK(wire::computeChunkHeaderChecksum(1u, 2u, 3u, 9u) != base); // chunkSizeClass
+}
+
+TEST_CASE("computeChunkHeaderChecksum never returns the 0 sentinel")
+{
+    // 0 is reserved to mean "not present" (never-claimed chunk, or one
+    // stamped before this field existed); a real computation that would
+    // otherwise land on exactly 0 is remapped to 1, so a reader can treat
+    // stored 0 as unambiguous. This sweeps varied inputs, including the
+    // all-zero case (0, 0, 0, 0) -- a genuinely stamped chunk with a zero
+    // thread id and zero timestamp is not something the format can rule
+    // out, so it is exactly the input where "real checksum" and "sentinel"
+    // would collide if nothing remapped them.
+    CHECK(wire::computeChunkHeaderChecksum(0u, 0u, 0u, 0u) != 0u);
+    for (std::uint64_t generation = 1u; generation < 500u; ++generation) {
+        CHECK(wire::computeChunkHeaderChecksum(generation, generation * 7u, generation * 13u,
+                                               static_cast<std::uint8_t>(generation)) != 0u);
+    }
+}

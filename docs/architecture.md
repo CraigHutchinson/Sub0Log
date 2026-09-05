@@ -110,8 +110,11 @@ on the producer path, and there is no cross-*process* synchronisation at all.
 
 A claimed chunk begins with a `ChunkHeader`: the segment `generation` stamped
 again (a reader rejects a stale chunk on positive evidence, R3.4), the owning
-thread id, and the monotonic time at claim. Everything after it is written by
-exactly one thread, unsynchronised (R1.3).
+thread id, the monotonic time at claim, a per-chunk size class (self-describing
+navigation, `vnext-adaptive-chunk-sizing.md`), and a CRC-32 over those fields
+so a reader can tell corruption of the header itself from a legitimate chunk
+of any generation or size (`vnext-header-checksum.md`). Everything after it is
+written by exactly one thread, unsynchronised (R1.3).
 
 When the segment runs out of chunks, records are **dropped and counted**
 (R9.1) -- never blocked on, never reallocated (R1.2). Segment rollover is a
