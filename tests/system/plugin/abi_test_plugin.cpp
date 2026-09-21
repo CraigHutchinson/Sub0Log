@@ -76,6 +76,6 @@ SUB0LOG_TEST_PLUGIN_EXPORT void sub0log_test_plugin_run(const Sub0LogAbiV1* tabl
         record.severity = cSeverityInfo;
         record.payload = payload;
         record.payload_bytes = static_cast<std::uint32_t>(sizeof(payload));
-        table->emit(&record);
+        table->emit_record(&record);
     }
 }
