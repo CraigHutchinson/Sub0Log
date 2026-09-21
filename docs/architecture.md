@@ -220,7 +220,7 @@ lowercase by the style guide's argued exception. The macro:
 2. materialises a distinct `constinit SiteDescriptor` with static storage
    duration (the two verified reasons this must be a macro are in
    `STYLE_GUIDE.md`);
-3. calls `detail::emit(site, args...)`, which writes the definition record on
+3. calls `detail::emitRecord(site, args...)`, which writes the definition record on
    first use and the message record always.
 
 The subsystem argument is an opaque `SubsystemId` the consumer defines; the
@@ -313,7 +313,7 @@ it and comes later -- this answers the third open question in
 ## The C ABI (R4)
 
 `sub0log_abi.h` is C, dependency-free, and carries a versioned function table
-(`Sub0LogAbiV1`: `define_site` / `emit` / `current_correlation`) that a host
+(`Sub0LogAbiV1`: `define_site` / `emit_record` / `current_correlation`) that a host
 exports to its plugins with one exported symbol
 (`SUB0LOG_ABI_GETTER_NAME`, `sub0log_abi_v1`). A plugin compiles the header
 only; it never links the library (R4.1), and nothing crossing the boundary

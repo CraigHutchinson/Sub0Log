@@ -103,6 +103,6 @@ SUB0LOG_EXAMPLE_PLUGIN_EXPORT void sub0log_example_plugin_run(const Sub0LogAbiV1
         record.severity = cSeverityInfo;
         record.payload = payload;
         record.payload_bytes = static_cast<std::uint32_t>(sizeof(payload));
-        table->emit(&record); // Runs in the HOST's producer path. Never blocks; a drop is counted there.
+        table->emit_record(&record); // Runs in the HOST's producer path. Never blocks; a drop is counted there.
     }
 }

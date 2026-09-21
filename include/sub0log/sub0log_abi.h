@@ -49,8 +49,12 @@ typedef struct Sub0LogAbiV1 {
                         const uint8_t* arg_type_codes, uint8_t arg_count);
 
     /* Emits one message record with the current time and the correlation id
-     * in scope on the calling thread. Never blocks; a drop is counted. */
-    void (*emit)(const Sub0LogAbiRecord* record);
+     * in scope on the calling thread. Never blocks; a drop is counted.
+     * Named emit_record, not emit: Qt's keyword macros #define emit to
+     * nothing (QObject headers, unless a consumer sets QT_NO_KEYWORDS),
+     * which would delete this field's name wherever this header is
+     * included after one -- see Sub0Log issue #1. */
+    void (*emit_record)(const Sub0LogAbiRecord* record);
 
     /* The correlation id in scope on the calling thread (R6.1 across the
      * plugin boundary), 0 when none. */

@@ -271,7 +271,7 @@ template <std::size_t MaxSlots>
 [[nodiscard]] inline bool reserveChain(ChunkWriter& writer, const std::uint32_t messagePayloadBytes,
                                        std::span<const ArgOverflow> overflows,
                                        ChunkWriter::Reservation& messageSlot,
-                                       std::array<ContinuationSlot, MaxSlots>& slots,
+                                       std::array<ContinuationSlot, MaxSlots>& contSlots,
                                        std::size_t& slotCount) noexcept
 {
     std::uint64_t needed = recordFootprint(messagePayloadBytes);
@@ -309,7 +309,7 @@ template <std::size_t MaxSlots>
                 // an impossible early return is an out-of-bounds write.
                 return false;
             }
-            slots[slotCount] = ContinuationSlot{slot, source, sliceLen, overflow.argIndex_};
+            contSlots[slotCount] = ContinuationSlot{slot, source, sliceLen, overflow.argIndex_};
             ++slotCount;
             source += sliceLen;
             remaining -= sliceLen;
@@ -441,16 +441,16 @@ void emitChained(Logger& logger, const SiteDescriptor& site, const Args&... args
         static_cast<std::uint32_t>(sizeof(wire::MessagePayload)) + argsBytes;
 
     ChunkWriter::Reservation msgSlot{};
-    std::array<ContinuationSlot, cMaxSlots> slots;
+    std::array<ContinuationSlot, cMaxSlots> contSlots;
     std::size_t slotCount = 0;
 
     ChunkWriter* writer = logger.currentWriter();
     bool reserved = writer != nullptr &&
-        reserveChain(*writer, messagePayloadBytes, overflows, msgSlot, slots, slotCount);
+        reserveChain(*writer, messagePayloadBytes, overflows, msgSlot, contSlots, slotCount);
     if (!reserved) {
         writer = logger.refillWriter();
         reserved = writer != nullptr &&
-            reserveChain(*writer, messagePayloadBytes, overflows, msgSlot, slots, slotCount);
+            reserveChain(*writer, messagePayloadBytes, overflows, msgSlot, contSlots, slotCount);
     }
     if (!reserved) {
         if (writer == nullptr) {
@@ -496,7 +496,7 @@ void emitChained(Logger& logger, const SiteDescriptor& site, const Args&... args
     }
 
     for (std::size_t s = 0; s < slotCount; ++s) {
-        const ContinuationSlot& cont = slots[s];
+        const ContinuationSlot& cont = contSlots[s];
         wire::ContinuationPayload prefix{};
         prefix.siteId_ = site.id();
         prefix.argIndex_ = cont.argIndex_;
@@ -513,11 +513,11 @@ void emitChained(Logger& logger, const SiteDescriptor& site, const Args&... args
     for (std::size_t s = 0; s < slotCount; ++s) {
         wire::RecordHead contHead{};
         contHead.payloadBytes_ =
-            static_cast<std::uint16_t>(sizeof(wire::ContinuationPayload) + slots[s].length_);
+            static_cast<std::uint16_t>(sizeof(wire::ContinuationPayload) + contSlots[s].length_);
         contHead.kind_ = wire::RecordKind::Continuation;
         contHead.flags_ = (s + 1u < slotCount) ? static_cast<std::uint8_t>(wire::cFlagContinued)
                                                : std::uint8_t{0};
-        writer->commit(slots[s].reservation_, contHead);
+        writer->commit(contSlots[s].reservation_, contHead);
     }
 
     wire::RecordHead msgHead{};
@@ -558,9 +558,18 @@ void emitChained(Logger& logger, const SiteDescriptor& site, const Args&... args
  *  (benchmarks/emit.bench.cpp).
  *
  *  No allocation, no lock, no formatting, noexcept end to end (R1.1-R1.3).
+ *
+ *  Named emitRecord rather than emit: `emit` is a bare identifier that
+ *  Qt's keyword macros (QObject/qobjectdefs.h, active unless a consumer
+ *  defines QT_NO_KEYWORDS) `#define` to nothing when a Qt header is
+ *  included before this one -- the preprocessor then deletes this
+ *  function's name from the token stream regardless of namespace
+ *  qualification, and the call site in log.hpp's SUB0LOG_EMIT macro goes
+ *  with it. See docs/upstream/ (Sub0Log issue #1) and the Qt consumer test
+ *  under tests/packaging/qt_consumer for both include orders compiling.
  */
 template <Encodable... Args>
-void emit(const SiteDescriptor& site, const Args&... args) noexcept
+void emitRecord(const SiteDescriptor& site, const Args&... args) noexcept
 {
     Logger* const logger = Logger::active();
     if (logger == nullptr) {

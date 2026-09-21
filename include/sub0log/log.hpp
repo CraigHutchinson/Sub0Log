@@ -53,7 +53,7 @@
                 (formatText), __FILE__, __LINE__,                                 \
                 ::sub0log::toSubsystemId(subsystemValue),                         \
                 (severityValue)};                                                 \
-            ::sub0log::detail::emit(sub0logSite_ __VA_OPT__(, ) __VA_ARGS__);     \
+            ::sub0log::detail::emitRecord(sub0logSite_ __VA_OPT__(, ) __VA_ARGS__); \
         }                                                                         \
     } while (false)
 
