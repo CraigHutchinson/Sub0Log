@@ -123,12 +123,20 @@ public:
 
     /// Stamps a chunk's header with an explicit generation (pass something
     /// other than generation() to fake a stale chunk); returns the offset of
-    /// the chunk's record body.
+    /// the chunk's record body. headerChecksum_ is left at its default-
+    /// member-initialised 0 ("not present") -- field-by-field assignment,
+    /// not positional aggregate-init braces, so the fields this helper does
+    /// not mention (headerChecksum_, chunkSizeClass_) always mean their
+    /// documented "not present"/"unspecified" default regardless of where
+    /// ChunkHeader gains its next field.
     std::uint64_t stampChunk(const std::uint32_t index, const std::uint64_t generation,
                              const std::uint64_t ownerThread, const std::uint64_t claimMonoNs = 0)
     {
         const std::uint64_t offset = chunkOffset(index);
-        const wire::ChunkHeader ch{generation, ownerThread, claimMonoNs, 0};
+        wire::ChunkHeader ch{};
+        ch.generation_ = generation;
+        ch.ownerThread_ = ownerThread;
+        ch.claimMonoNs_ = claimMonoNs;
         wire::storeUnaligned(image_.data() + offset, ch);
         return offset + sizeof(wire::ChunkHeader);
     }
@@ -143,14 +151,53 @@ public:
     /// chunkSizeClass_ instead of the 0 ("unspecified") every method above
     /// uses -- for tests that exercise the self-description cross-check
     /// itself, agreement and a deliberately wrong class alike.
+    /// headerChecksum_ stays 0 ("not present"), same reasoning as
+    /// stampChunk(): a test built through this helper is exercising size-
+    /// class behaviour, not checksum behaviour, and 0 skips verification
+    /// exactly as legacy data does.
     std::uint64_t stampOwnedChunkWithSizeClass(const std::uint32_t index,
                                                const std::uint64_t ownerThread,
                                                const std::uint8_t chunkSizeClass)
     {
         const std::uint64_t offset = chunkOffset(index);
-        wire::ChunkHeader ch{generation_, ownerThread, 0, chunkSizeClass};
+        wire::ChunkHeader ch{};
+        ch.generation_ = generation_;
+        ch.ownerThread_ = ownerThread;
+        ch.chunkSizeClass_ = chunkSizeClass;
         wire::storeUnaligned(image_.data() + offset, ch);
         return offset + sizeof(wire::ChunkHeader);
+    }
+
+    /// Stamps an owned chunk with a real, matching headerChecksum_ -- the
+    /// same value Segment::claimChunk() would compute for these fields --
+    /// so a test can exercise the checksum-verified path itself. A
+    /// corrupted-checksum test starts from this and then calls
+    /// corruptByte() below, rather than hand-computing a wrong checksum:
+    /// the point is that *any* of the checksummed fields being tampered is
+    /// caught, not just the checksum field itself.
+    std::uint64_t stampOwnedChunkWithChecksum(const std::uint32_t index,
+                                              const std::uint64_t ownerThread,
+                                              const std::uint64_t claimMonoNs,
+                                              const std::uint8_t chunkSizeClass)
+    {
+        const std::uint64_t offset = chunkOffset(index);
+        wire::ChunkHeader ch{};
+        ch.generation_ = generation_;
+        ch.ownerThread_ = ownerThread;
+        ch.claimMonoNs_ = claimMonoNs;
+        ch.chunkSizeClass_ = chunkSizeClass;
+        ch.headerChecksum_ = wire::computeChunkHeaderChecksum(
+            ch.generation_, ch.ownerThread_, ch.claimMonoNs_, ch.chunkSizeClass_);
+        wire::storeUnaligned(image_.data() + offset, ch);
+        return offset + sizeof(wire::ChunkHeader);
+    }
+
+    /// Overwrites one byte anywhere in the image directly -- for tests that
+    /// need to corrupt a specific field (by offsetof(wire::ChunkHeader, ...)
+    /// added to chunkOffset()) after stamping an otherwise-valid header.
+    void corruptByte(const std::uint64_t offset, const std::uint8_t newByte)
+    {
+        image_[offset] = static_cast<std::byte>(newByte);
     }
 
     /// Writes one committed record at `cursor` (payload before the head
