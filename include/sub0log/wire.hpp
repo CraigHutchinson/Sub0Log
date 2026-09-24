@@ -292,6 +292,17 @@ static_assert(sizeof(SegmentHeader) == 64u);
 /// its own cache line, after the readable header fields.
 inline constexpr std::uint32_t cNextChunkOffset = 128u;
 
+/// The header area of an in-memory segment (Logger::createInMemory): the
+/// cursor's cache line and nothing after it, so chunks start at 192 bytes
+/// instead of cSegmentHeaderBytes' 4096. Not a format change -- headerBytes_
+/// has always been data the reader trusts ("geometry is data, not
+/// convention"), and nothing reads past cNextChunkOffset + 8 in the header
+/// area. The page-sized header stays on file segments, whose mapping it is
+/// sized for; on a 16 KiB microcontroller buffer it would be a quarter of
+/// the memory (docs/embedded.md).
+inline constexpr std::uint32_t cCompactSegmentHeaderBytes = cNextChunkOffset + 64u;
+static_assert(cCompactSegmentHeaderBytes % 64u == 0u);
+
 struct ChunkHeader {
     std::uint64_t generation_;  ///< Must equal SegmentHeader::generation_ (R3.4).
     std::uint64_t ownerThread_; ///< Producer thread id, for R2.2 filtering.

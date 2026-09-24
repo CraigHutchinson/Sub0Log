@@ -350,6 +350,24 @@ public:
         std::uint64_t truncatedRecords_{}; ///< Written, but a payload was capped.
     };
 
+    /** How much of the segment is spent, in chunks: the watermark a caller
+     *  rotating segments (docs/vnext-segment-rollover.md, layer 1) or
+     *  draining an in-memory one to its own storage (docs/embedded.md)
+     *  decides on. Stats says what was lost; this says how close loss is.
+     *
+     *  Chunks, not bytes, because a chunk is the unit that is gone once
+     *  claimed: a thread holds one whole, whatever it has written into it.
+     *  One relaxed load; safe to poll from a control thread.
+     */
+    struct Usage {
+        std::uint32_t chunksClaimed_{}; ///< Handed out so far, at most chunkCount_.
+        std::uint32_t chunkCount_{};    ///< The segment's total; 0 when invalid.
+    };
+    [[nodiscard]] Usage usage() const noexcept
+    {
+        return Usage{segment_.claimedChunks(), segment_.chunkCount()};
+    }
+
     void countDrop() noexcept;
     void countTruncation() noexcept;
     [[nodiscard]] Stats stats() const noexcept;

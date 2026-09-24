@@ -78,7 +78,8 @@ public:
      *  storage is zeroed, the header written, and that is all.
      *
      *  The segment is `storage.size()` bytes; `options.segmentBytes_` is not
-     *  consulted. `storage` must be aligned to wire::cRecordAlign (a
+     *  consulted. The header area is wire::cCompactSegmentHeaderBytes (192),
+     *  not a file segment's 4096. `storage` must be aligned to wire::cRecordAlign (a
      *  `alignas(8) std::byte[N]` or any `new`/`malloc` result is), and large
      *  enough for the header and one chunk; otherwise the result is invalid
      *  with error() saying which.
@@ -105,6 +106,12 @@ public:
     /// its body. Invalid writer when the segment is full.
     [[nodiscard]] ChunkWriter claimChunk() noexcept;
 
+    /// Chunks handed out so far, never more than chunkCount(). One relaxed
+    /// load of the claim cursor: a snapshot for a control thread deciding
+    /// when to rotate or drain, not a synchronisation point.
+    [[nodiscard]] std::uint32_t claimedChunks() const noexcept;
+    [[nodiscard]] std::uint32_t chunkCount() const noexcept { return chunkCount_; }
+
 private:
     /// Refuses a chunk size the wire format cannot carry; the empty error
     /// when it is fine. Shared by both creation paths.
@@ -112,8 +119,8 @@ private:
 
     /// Stamps the header and cursor over `bytes` and records the geometry --
     /// everything both creation paths do once the memory exists.
-    void initialise(std::span<std::byte> bytes, std::uint32_t chunkBytes,
-                    std::uint64_t generation) noexcept;
+    void initialise(std::span<std::byte> bytes, std::uint32_t headerBytes,
+                    std::uint32_t chunkBytes, std::uint64_t generation) noexcept;
 
     /// The segment's bytes, whoever owns them: mapping_'s view for a file
     /// segment, the caller's span for an in-memory one. Null when invalid.
@@ -125,6 +132,10 @@ private:
     PlatformError geometryError_{};
     std::string path_{};
     std::uint64_t generation_{0};
+    /// Where chunk 0 starts: wire::cSegmentHeaderBytes for a file,
+    /// wire::cCompactSegmentHeaderBytes in memory. Written into the header,
+    /// which is where a reader takes it from.
+    std::uint32_t headerBytes_{0};
     std::uint32_t chunkBytes_{0};
     std::uint32_t chunkCount_{0};
     /// wire::sizeClassForChunkBytes(chunkBytes_), or 0 ("unspecified") when
@@ -144,6 +155,7 @@ inline Segment::Segment(Segment&& other) noexcept
       geometryError_{other.geometryError_},
       path_{std::move(other.path_)},
       generation_{other.generation_},
+      headerBytes_{other.headerBytes_},
       chunkBytes_{other.chunkBytes_},
       chunkCount_{other.chunkCount_},
       sizeClass_{other.sizeClass_}
@@ -158,6 +170,7 @@ inline Segment& Segment::operator=(Segment&& other) noexcept
         geometryError_ = other.geometryError_;
         path_ = std::move(other.path_);
         generation_ = other.generation_;
+        headerBytes_ = other.headerBytes_;
         chunkBytes_ = other.chunkBytes_;
         chunkCount_ = other.chunkCount_;
         sizeClass_ = other.sizeClass_;
@@ -182,6 +195,7 @@ inline Segment& Segment::operator=(Segment&& other) noexcept
     static_assert(wire::cChunkSizeUnit >= cMinChunkBytes,
                   "the smallest representable size class must itself be a valid chunk size");
     static_assert(wire::cSegmentHeaderBytes % wire::cRecordAlign == 0u);
+    static_assert(wire::cCompactSegmentHeaderBytes % wire::cRecordAlign == 0u);
     if (chunkBytes < cMinChunkBytes || (chunkBytes % wire::cRecordAlign) != 0u) {
         return PlatformError{0, "Segment::create: chunkBytes must be 8-aligned and larger "
                                 "than a chunk header"};
@@ -189,10 +203,10 @@ inline Segment& Segment::operator=(Segment&& other) noexcept
     return PlatformError{};
 }
 
-inline void Segment::initialise(const std::span<std::byte> bytes, const std::uint32_t chunkBytes,
+inline void Segment::initialise(const std::span<std::byte> bytes, const std::uint32_t headerBytes,
+                                const std::uint32_t chunkBytes,
                                 const std::uint64_t generation) noexcept
 {
-    const std::uint32_t headerBytes = wire::cSegmentHeaderBytes;
     const std::uint64_t segmentBytes = bytes.size();
 
     // The anchor pair is read once, before any record can be written, so a
@@ -225,6 +239,7 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
 
     bytes_ = bytes;
     generation_ = generation;
+    headerBytes_ = headerBytes;
     chunkBytes_ = chunkBytes;
     chunkCount_ = segmentBytes > headerBytes
                       ? static_cast<std::uint32_t>((segmentBytes - headerBytes) / chunkBytes)
@@ -259,7 +274,7 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
             PlatformError{0, "Segment::createInMemory: storage must be non-null and 8-aligned"};
         return result;
     }
-    if (storage.size() < std::uint64_t{wire::cSegmentHeaderBytes} + options.chunkBytes_) {
+    if (storage.size() < std::uint64_t{wire::cCompactSegmentHeaderBytes} + options.chunkBytes_) {
         result.geometryError_ = PlatformError{
             0, "Segment::createInMemory: storage is smaller than the header plus one chunk"};
         return result;
@@ -270,7 +285,8 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     // before would read as records. Zeroed once, here, on the control
     // thread -- claimChunk() stays exactly as cheap as the file path's.
     std::memset(storage.data(), 0, storage.size());
-    result.initialise(storage, options.chunkBytes_, randomGeneration());
+    result.initialise(storage, wire::cCompactSegmentHeaderBytes, options.chunkBytes_,
+                      randomGeneration());
     return result;
 }
 
@@ -314,8 +330,21 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     const std::span<std::byte> bytes = mapping.bytes();
     result.mapping_ = std::move(mapping); // moves the handle; the view is unchanged
     // The generation already named the file; the header must carry the same.
-    result.initialise(bytes, options.chunkBytes_, generation);
+    result.initialise(bytes, wire::cSegmentHeaderBytes, options.chunkBytes_, generation);
     return result;
+}
+
+[[nodiscard]] inline std::uint32_t Segment::claimedChunks() const noexcept
+{
+    if (!valid()) {
+        return 0u;
+    }
+    const std::atomic_ref<std::uint64_t> cursor{
+        *wire::startUint64LifetimeAt(bytes_.data() + wire::cNextChunkOffset)};
+    const std::uint64_t claimed = cursor.load(std::memory_order_relaxed);
+    // The cursor keeps counting refused claims past the end (claimChunk()
+    // fetch_adds before it checks), so it is clamped rather than reported.
+    return claimed < chunkCount_ ? static_cast<std::uint32_t>(claimed) : chunkCount_;
 }
 
 [[nodiscard]] inline ChunkWriter Segment::claimChunk() noexcept
@@ -337,7 +366,7 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     }
 
     std::byte* const chunkBase =
-        base + wire::cSegmentHeaderBytes + static_cast<std::uint64_t>(index) * chunkBytes_;
+        base + headerBytes_ + static_cast<std::uint64_t>(index) * chunkBytes_;
 
     // sizeClass_ was validated once, at create() (0 -- "unspecified" -- when
     // chunkBytes_ was not exactly representable): stamped verbatim here

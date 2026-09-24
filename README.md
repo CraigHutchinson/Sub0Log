@@ -260,6 +260,9 @@ options.segment_.chunkBytes_ = 1024; // the 64 KiB default is a desktop number
 auto logger = sub0log::Logger::createInMemory(buffer, options);
 ```
 
+Anything that is not RAM -- raw flash, EEPROM, a UART, a radio -- is
+reached by draining: producers keep writing RAM, and a background task
+watches `logger.usage()`, rotates to a spare buffer and ships the full one.
 What that gives up is stated, not implied: records in ordinary process
 memory die with the process, so a hard kill takes them unless the buffer
 itself outlives it (retained RAM across a warm reset, a mapping someone else

@@ -22,7 +22,11 @@
  *  once, declared below: sub0log_platform_monotonic_ns,
  *  sub0log_platform_wall_ns, sub0log_platform_process_id and
  *  sub0log_platform_thread_id. The clock rule still applies to whatever the
- *  consumer's monotonic hook returns.
+ *  consumer's monotonic hook returns. A target with no real-time clock
+ *  returns its monotonic reading from the wall hook, never a constant: the
+ *  reader aligns segments through each one's (monotonic, wall) anchor pair,
+ *  and a constant would put every segment's first record at the same
+ *  instant.
  *
  *  The clock rule (R5.3): monotonicNowNs() must be comparable across
  *  processes on one machine -- CLOCK_MONOTONIC on Linux, QPC on Windows,
