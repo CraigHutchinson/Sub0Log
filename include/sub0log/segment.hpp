@@ -124,7 +124,9 @@ public:
     /// load of the claim cursor: a snapshot for a control thread deciding
     /// when to rotate or drain, not a synchronisation point.
     [[nodiscard]] std::uint32_t claimedChunks() const noexcept;
-    [[nodiscard]] std::uint32_t chunkCount() const noexcept { return chunkCount_; }
+    /// 0 when invalid -- including a moved-from Segment, whose other
+    /// geometry fields are left as they were.
+    [[nodiscard]] std::uint32_t chunkCount() const noexcept { return valid() ? chunkCount_ : 0u; }
 
 private:
     /// Refuses a chunk size the wire format cannot carry; the empty error
@@ -261,7 +263,17 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     if constexpr (detail::cSplitAtomics) {
         // Control-thread work, once per segment. 0 is what an unannounced
         // site holds, so a wrap skips it.
-        static constinit std::atomic<std::uint32_t> sNextAnnounceKey{1};
+        //
+        // Seeded from the first generation rather than starting at 1: this
+        // counter exists once per shared object where the library is
+        // instantiated more than once (hidden visibility), and a host can
+        // force this path (SUB0LOG_SPLIT_ATOMICS). Random starts make two
+        // objects' key ranges overlap with probability ~ n_a * n_b / 2^32
+        // rather than certainly; within one image keys stay exact.
+        static constinit std::atomic<std::uint32_t> sNextAnnounceKey{0};
+        std::uint32_t unseeded = 0;
+        (void)sNextAnnounceKey.compare_exchange_strong(
+            unseeded, static_cast<std::uint32_t>(generation) | 1u, std::memory_order_relaxed);
         std::uint32_t key = sNextAnnounceKey.fetch_add(1u, std::memory_order_relaxed);
         if (key == 0u) {
             key = sNextAnnounceKey.fetch_add(1u, std::memory_order_relaxed);

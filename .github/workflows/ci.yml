@@ -171,9 +171,9 @@ jobs:
     # OS, no exceptions and no RTTI. Gating on "it builds and links";
     # the size it prints is the measurement docs/embedded.md quotes, and is
     # reported rather than gated for the same reason benchmarks-smoke is.
-    # Cortex-A7, not a Cortex-M: chunk.hpp refuses targets without lock-free
-    # 64-bit atomics, which is every Cortex-M -- docs/embedded.md has why
-    # and the proposed way past it.
+    # Cortex-A7: a 32-bit core *with* lock-free 64-bit atomics, so this is
+    # the u64 protocol on bare metal; the Cortex-M (split 32-bit) protocol
+    # is embedded-cortex-m's job, below.
     name: embedded-arm
     runs-on: ubuntu-24.04
     steps:
@@ -215,7 +215,9 @@ jobs:
       - name: Build sub0log-cat
         run: cmake --build build --target sub0log-cat
       - name: Run on Cortex-M3, M4, M7, M33
-        run: ctest --test-dir build -L cortex-m --output-on-failure -V
+        # --no-tests=error: the tests register only if CMake finds the
+        # toolchain and QEMU, and zero tests must not read as a pass.
+        run: ctest --test-dir build -L cortex-m --output-on-failure -V --no-tests=error
 
   linux-gcc-split-atomics:
     # The whole suite with SUB0LOG_SPLIT_ATOMICS=1: the Cortex-M protocol

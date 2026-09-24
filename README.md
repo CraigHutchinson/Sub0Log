@@ -157,7 +157,9 @@ logDebug(Storage, "read {} at {} for {} bytes", blobId, offset, length);
 Stated here rather than left to be discovered:
 
 - **Pre-1.0.** Version `0.1.0`, no tagged release yet. The public API can
-  still move between releases; `wire::cFormatVersion` (the on-disk format,
+  still move between releases -- it did for plugin authors when the C ABI's
+  `Sub0LogAbiV1::emit` became `emit_record` (Qt's `emit` macro deleted the
+  old name; binaries built before still load); `wire::cFormatVersion` (the on-disk format,
   separate from the library version) is meant to change far more rarely, but
   neither is frozen.
 - **A segment does not wrap** ("How it works" above has why). A real

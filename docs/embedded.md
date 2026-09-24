@@ -29,7 +29,7 @@ consumer defines once:
 
 ```cpp
 extern "C" std::uint64_t sub0log_platform_monotonic_ns(void) noexcept; // tick counter, in ns
-extern "C" std::uint64_t sub0log_platform_wall_ns(void) noexcept;      // RTC, or 0
+extern "C" std::uint64_t sub0log_platform_wall_ns(void) noexcept;      // RTC; else the monotonic reading, never a constant
 extern "C" std::uint64_t sub0log_platform_process_id(void) noexcept;   // image/node id
 extern "C" std::uint64_t sub0log_platform_thread_id(void) noexcept;    // current task
 ```

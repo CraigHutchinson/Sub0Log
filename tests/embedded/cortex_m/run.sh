@@ -9,6 +9,7 @@
 # Exit status is non-zero if the build, the firmware's own checks, or the
 # host-side decode fail.
 set -eu
+# pipefail is not POSIX sh; the OK-line grep below covers the tee pipeline.
 board=$1; root=$2; cat_tool=$3; work=$4; opt=${5:--Os}
 
 case "$board" in
@@ -33,8 +34,13 @@ arm-none-eabi-size "$elf"
 
 cd "$work"
 rm -f cortex_m_segment.s0l
+# The firmware's verdict is checked twice: QEMU's exit status (semihosting
+# SYS_EXIT) and its own printed OK line, because whether a failing exit code
+# survives semihosting on AArch32 depends on the QEMU version.
 timeout 300 qemu-system-arm -M "mps2-$board" -nographic -monitor none -serial none \
-    -semihosting-config enable=on,target=native -icount shift=0 -kernel "$elf"
+    -semihosting-config enable=on,target=native -icount shift=0 -kernel "$elf" \
+    | tee firmware.log
+grep -q '^cortex-m: OK$' firmware.log
 
 "$cat_tool" --stats cortex_m_segment.s0l > decoded.txt
 head -3 decoded.txt

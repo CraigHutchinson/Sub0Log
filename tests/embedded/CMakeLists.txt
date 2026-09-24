@@ -49,6 +49,19 @@ if(NOT WIN32)
     target_compile_options(Sub0LogFreestandingProbe PRIVATE
         -Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti)
     add_test(NAME "embedded::freestanding_probe" COMMAND Sub0LogFreestandingProbe)
+
+    # Every platform hook constant: segments recreated within one "tick"
+    # must still get distinct generations (detail::randomGeneration).
+    add_executable(Sub0LogConstantClock "${CMAKE_CURRENT_SOURCE_DIR}/constant_clock.cpp")
+    target_link_libraries(Sub0LogConstantClock PRIVATE Sub0Log::Sub0Log)
+    target_compile_definitions(Sub0LogConstantClock PRIVATE SUB0LOG_PLATFORM_CUSTOM)
+    set_target_properties(Sub0LogConstantClock PROPERTIES
+        CXX_STANDARD 23
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF)
+    target_compile_options(Sub0LogConstantClock PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME "embedded::constant_clock" COMMAND Sub0LogConstantClock)
+    set_tests_properties("embedded::constant_clock" PROPERTIES LABELS "integration;embedded")
     set_tests_properties("embedded::freestanding_probe" PROPERTIES
         LABELS "integration;embedded")
 endif()
