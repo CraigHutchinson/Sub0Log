@@ -53,7 +53,9 @@ typedef struct Sub0LogAbiV1 {
      * Named emit_record, not emit: Qt's keyword macros #define emit to
      * nothing (QObject headers, unless a consumer sets QT_NO_KEYWORDS),
      * which would delete this field's name wherever this header is
-     * included after one -- see Sub0Log issue #1. */
+     * included after one -- see Sub0Log issue #1. A source-level rename
+     * only: the layout is unchanged, so SUB0LOG_ABI_VERSION stays 1 and a
+     * plugin built against the old spelling still loads and works. */
     void (*emit_record)(const Sub0LogAbiRecord* record);
 
     /* The correlation id in scope on the calling thread (R6.1 across the

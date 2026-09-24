@@ -17,14 +17,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # qt: real Qt 6 for tests/qt_keywords (issue #1), required rather
+          # than auto-detected so a broken install fails instead of skipping.
+          # One GCC, one Clang and the MSVC leg; the rest still run the
+          # Qt-less shim variants of the same test.
           - name: linux-gcc
             os: ubuntu-24.04
             cxx: g++
             generator: Ninja
+            qt: true
           - name: linux-clang
             os: ubuntu-24.04
             cxx: clang++
             generator: Ninja
+            qt: true
           - name: linux-gcc-sanitizers
             os: ubuntu-24.04
             cxx: g++
@@ -36,6 +42,7 @@ jobs:
             generator: Ninja
           - name: windows-msvc
             os: windows-2022
+            qt: true
             # MSVC via the default Visual Studio generator; multi-config, so
             # the configuration is picked at build/test time.
 
@@ -45,6 +52,18 @@ jobs:
       - name: Install Ninja (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install Qt 6 (Linux)
+        if: runner.os == 'Linux' && matrix.qt
+        run: sudo apt-get install -y qt6-base-dev
+
+      - name: Install Qt 6 (Windows)
+        if: runner.os == 'Windows' && matrix.qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          cache: true
 
       - name: Install Ninja (macOS)
         if: runner.os == 'macOS'
@@ -57,11 +76,12 @@ jobs:
         run: >
           cmake -S . -B build -G "${{ matrix.generator }}"
           -DCMAKE_BUILD_TYPE=Debug
+          ${{ matrix.qt && '-DSUB0LOG_TEST_QT=ON' || '' }}
           ${{ matrix.flags && format('-DCMAKE_CXX_FLAGS="{0}"', matrix.flags) || '' }}
 
       - name: Configure (Windows)
         if: runner.os == 'Windows'
-        run: cmake -S . -B build
+        run: cmake -S . -B build ${{ matrix.qt && '-DSUB0LOG_TEST_QT=ON' || '' }}
 
       - name: Build
         run: cmake --build build --config Debug
