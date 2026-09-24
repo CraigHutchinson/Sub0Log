@@ -269,7 +269,8 @@ itself outlives it (retained RAM across a warm reset, a mapping someone else
 also holds). A full buffer drops and counts exactly as a full file does.
 `docs/embedded.md` has the per-backend guarantees, the measured flash and
 RAM cost on 32-bit ARM, `SUB0LOG_PLATFORM_CUSTOM` for targets with no OS,
-and what is still open -- Cortex-M among it.
+Cortex-M3/M4/M7/M33 support (a 32-bit-atomics protocol that keeps the
+format byte-identical, run under QEMU in CI), and what is still open.
 
 ## Operating it
 

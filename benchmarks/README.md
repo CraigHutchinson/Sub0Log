@@ -9,7 +9,7 @@ the component map these KPIs are measured against.
 
 Framework: [nanobench](https://github.com/martinus/nanobench) (fetched via
 CPM, pinned to `v4.3.11`). One executable, `Sub0LogBenchmarks`, with a small
-`main()` dispatching to six KPI groups.
+`main()` dispatching to seven KPI groups.
 
 ## Building
 
@@ -39,14 +39,14 @@ there is nothing to check at configure time for those.)
 ```
 
 `--json <path>` renders every collected `ankerl::nanobench::Result` --
-across every group that ran, whether that was all six or a subset named on
+across every group that ran, whether that was all seven or a subset named on
 the command line -- through nanobench's built-in JSON template into one
 file. That file is the metric-collection artifact for CI trending: diff two
 runs' `median(elapsed)` per named result to catch a regression, or graph a
 series of them over time. An unrecognised group name, or an unrecognised
 `--` option, exits non-zero without running anything.
 
-The whole suite (all six groups, default settings) runs in a few seconds --
+The whole suite (all seven groups, default settings) runs in well under a minute --
 comfortably under the ~2 minute budget it was designed against.
 
 ## The KPI groups
@@ -140,6 +140,26 @@ over the 100,000 total records.
 `Decoder::format()` of a single decoded 4-argument record. Decoding
 otherwise never touches text (R1.1); this is the one place it does, and
 only on request.
+
+### `atomics` -- the two commit/claim protocols side by side
+
+`include/sub0log/detail/atomics.hpp` has a 64-bit path and a split 32-bit
+path (the one every Cortex-M runs). Its operations are templates on the
+path, so this group times both in one binary, on small resident arrays --
+no page faults, unlike `claim` -- to isolate exactly where they differ:
+
+| KPI | measures |
+|---|---|
+| `atomics.commit.{u64,split32}` | publishing one head word |
+| `atomics.loadHeadWord.{u64,split32}` | the reader's side of it |
+| `atomics.claim.{u64,split32}` | one uncontended chunk claim |
+| `atomics.claim.contended.{u64,split32}.t{1,2,4,8}` | claims per thread-count, all threads on one cursor |
+
+To see what the split path costs the *library* rather than the primitive,
+build the whole suite a second time with
+`-DCMAKE_CXX_FLAGS=-DSUB0LOG_SPLIT_ATOMICS=1` and compare the other groups;
+`docs/embedded.md` has one such comparison and the Cortex-M instruction
+counts.
 
 ## Design notes
 

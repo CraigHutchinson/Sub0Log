@@ -52,3 +52,25 @@ if(NOT WIN32)
     set_tests_properties("embedded::freestanding_probe" PROPERTIES
         LABELS "integration;embedded")
 endif()
+
+# The split 32-bit protocol on real Cortex-M instruction sets (detail/
+# atomics.hpp): cortex_m/firmware.cpp cross-compiled per core, run under
+# QEMU's MPS2 boards with semihosting, and its segment decoded by the host
+# sub0log-cat built above. Registered only where both tools are installed;
+# CI's embedded-cortex-m job installs them and runs `ctest -L cortex-m`.
+find_program(SUB0LOG_ARM_NONE_EABI_GXX arm-none-eabi-g++)
+find_program(SUB0LOG_QEMU_SYSTEM_ARM qemu-system-arm)
+if(SUB0LOG_ARM_NONE_EABI_GXX AND SUB0LOG_QEMU_SYSTEM_ARM AND TARGET sub0log-cat AND NOT WIN32)
+    foreach(board an385 an386 an500 an505)
+        add_test(NAME "embedded::cortex_m_${board}"
+                 COMMAND sh "${CMAKE_CURRENT_SOURCE_DIR}/cortex_m/run.sh" ${board}
+                         "${PROJECT_SOURCE_DIR}" "$<TARGET_FILE:sub0log-cat>"
+                         "${CMAKE_CURRENT_BINARY_DIR}/cortex_m/${board}")
+        set_tests_properties("embedded::cortex_m_${board}" PROPERTIES
+            LABELS "embedded;cortex-m"
+            TIMEOUT 600)
+    endforeach()
+else()
+    message(STATUS "Sub0Log: arm-none-eabi-g++ or qemu-system-arm not found -- "
+                   "Cortex-M tests (label cortex-m) skipped")
+endif()

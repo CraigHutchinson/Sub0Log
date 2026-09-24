@@ -23,7 +23,7 @@
  *  **Announce-once, across the boundary (R4.3).** A C++ call site's
  *  "already announced into this generation?" flag is free: SiteDescriptor
  *  (site.hpp) is a distinct static object per call site, so its
- *  `announcedGeneration_` atomic belongs to nobody else. A plugin's call
+ *  `announcedKey_` atomic belongs to nobody else. A plugin's call
  *  site is only a `uint64_t` crossing the boundary -- there is no host-owned
  *  object per site to hang that atomic off, so the equivalent state has to
  *  live in a table the host owns instead, shared by every site any plugin
@@ -158,6 +158,14 @@
 #include <span>
 #include <string_view>
 
+// The plugin host's site table keys on the 64-bit segment generation and
+// the 64-bit site id, with atomics per slot. A plugin ABI is a hosted-OS
+// feature; on a core without lock-free 64-bit atomics these would quietly
+// become a lock table (R1.3), so the header refuses instead of pretending.
+static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
+              "sub0log/abi_host.hpp needs lock-free 64-bit atomics; the plugin C ABI "
+              "is not available on split-atomics targets (detail/atomics.hpp)");
+
 namespace sub0log::abi {
 
 namespace detail {
@@ -202,7 +210,7 @@ public:
     /// addresses of static objects -- see sub0log_abi.h's own comment on
     /// Sub0LogAbiRecord::site_id -- and an address is never null), so 0 is
     /// free to mean "this slot has never been claimed", the same trade
-    /// site.hpp's announcedGeneration_ already makes for generation 0.
+    /// site.hpp's announcedKey_ already makes for key 0.
 
     /// The generation last recorded for siteId, or 0 when siteId has never
     /// been recorded -- including when the probe bound was exhausted

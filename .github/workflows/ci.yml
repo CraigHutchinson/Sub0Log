@@ -194,6 +194,55 @@ jobs:
           arm-none-eabi-size probe.elf
           arm-none-eabi-nm -C -S --size-sort probe.elf | grep -E ' (sub0log|main$)' || true
 
+  embedded-cortex-m:
+    # The split 32-bit protocol (include/sub0log/detail/atomics.hpp) on the
+    # cores it exists for: tests/embedded/cortex_m/firmware.cpp built for
+    # Cortex-M3, M4, M7 and M33 and run under QEMU's MPS2 boards. Each run
+    # checks itself (records, drops, the bounded cursor), prints executed-
+    # instruction costs from QEMU's -icount clock, and writes its segment to
+    # the host, where the desktop sub0log-cat must decode it.
+    name: embedded-cortex-m
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain and QEMU
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y ninja-build gcc-arm-none-eabi
+          libstdc++-arm-none-eabi-newlib qemu-system-arm
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSUB0LOG_TEST_QT=OFF
+      - name: Build sub0log-cat
+        run: cmake --build build --target sub0log-cat
+      - name: Run on Cortex-M3, M4, M7, M33
+        run: ctest --test-dir build -L cortex-m --output-on-failure -V
+
+  linux-gcc-split-atomics:
+    # The whole suite with SUB0LOG_SPLIT_ATOMICS=1: the Cortex-M protocol
+    # through the real Logger, readers, merger, child capture and C ABI, on
+    # a host with threads and sanitizers -- which QEMU's single core
+    # cannot give it. Plus the stress harness's invariants under load.
+    name: linux-gcc-split-atomics
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-DSUB0LOG_SPLIT_ATOMICS=1 -fsanitize=address,undefined -fno-sanitize-recover=all"
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+      - name: Stress (quick, split atomics)
+        run: |
+          cmake -S . -B build-stress -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DSUB0LOG_BUILD_BENCHMARKS=ON -DSUB0LOG_BUILD_TESTING=OFF \
+            -DCMAKE_CXX_FLAGS=-DSUB0LOG_SPLIT_ATOMICS=1
+          cmake --build build-stress
+          ./build-stress/benchmarks/Sub0LogStress --quick
+
   stress-quick:
     # The stress harness asserts invariants under load rather than measuring,
     # so unlike the KPI numbers it *is* a legitimate pass/fail gate. --quick

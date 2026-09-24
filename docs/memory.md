@@ -156,7 +156,8 @@ kept as the analysis that motivated it.)
 4. **A thread-local-free mode.** Single-threaded targets do not need the
    writer cache or the correlation id in TLS, and some toolchains make TLS
    expensive or unavailable.
-5. **A decision about the 64-bit head word.** It is what the `static_assert`
+5. **(Resolved: `embedded.md`, "Cortex-M" -- a split 32-bit protocol that
+   needed no format fork.) A decision about the 64-bit head word.** It is what the `static_assert`
    above guards. A 32-bit variant of the format would widen the audience
    and fork the wire format; that is a real cost and should be an explicit
    choice, not a drift.

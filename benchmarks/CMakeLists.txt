@@ -33,6 +33,7 @@ add_executable(Sub0LogBenchmarks
     decode.bench.cpp
     merge.bench.cpp
     format.bench.cpp
+    atomics.bench.cpp
 )
 target_link_libraries(Sub0LogBenchmarks PRIVATE
     Sub0Log::Sub0Log

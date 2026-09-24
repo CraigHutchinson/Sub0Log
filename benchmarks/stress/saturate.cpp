@@ -31,7 +31,7 @@ constexpr sub0log::SubsystemId cSaturateSubsystem{100};
 
 /// The one call site every producer thread (and the pre-warm call below)
 /// shares. A single, distinct function -- never reused by another
-/// scenario -- so its SiteDescriptor::announcedGeneration_ latch belongs to
+/// scenario -- so its SiteDescriptor::announcedKey_ latch belongs to
 /// this scenario alone (docs/architecture.md, "the site's identity is its
 /// descriptor address"; benchmarks/support/mixed_records.hpp explains why a
 /// shared call site across independent producers is the wrong shape).
@@ -75,7 +75,7 @@ ScenarioResult runSaturate(const RunOptions& options)
         // Pre-warm the shared call site on the calling thread, with the
         // segment still completely empty, so the SiteDefinition write is
         // guaranteed to succeed before any producer thread starts. Without
-        // this, several threads could race the "announcedGeneration_ !=
+        // this, several threads could race the "announcedKey_ !=
         // generation" check simultaneously; the loser(s) would each pay a
         // second, spurious drop for a definition nobody needed after the
         // first succeeded, which would desynchronise "one emitted call, at

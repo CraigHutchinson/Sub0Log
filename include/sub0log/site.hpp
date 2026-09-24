@@ -4,6 +4,7 @@
  *  @brief The constant half of a call site (docs/record-model.md).
  */
 
+#include "detail/atomics.hpp"
 #include "severity.hpp"
 
 #include <atomic>
@@ -28,8 +29,9 @@ struct SiteDescriptor {
     SubsystemId subsystem_{};
     Severity severity_{Severity::Info};
 
-    /// The segment generation this site's SiteDefinition was last written
-    /// into; 0 until it has been written anywhere.
+    /// The announce key (Segment::announceKey()) of the segment this site's
+    /// SiteDefinition was last written into; 0 until it has been written
+    /// anywhere. That key is the segment's generation on hosts.
     ///
     /// A plain "announced" flag would be wrong, and was: it made announcing
     /// a once-per-process event, so a call site reached under a second
@@ -39,11 +41,15 @@ struct SiteDescriptor {
     /// instance per case, a Logger recreated on reconfiguration), and R7.1
     /// promises exactly that binding works.
     ///
-    /// Keying on the generation costs the same as the flag did: one relaxed
+    /// Keying on the segment costs the same as the flag did: one relaxed
     /// load and a comparison on the emit path (R1.4). Two threads racing
-    /// into a new generation may both write the definition, which is benign
+    /// into a new segment may both write the definition, which is benign
     /// -- the decoder keeps the first, as it always did.
-    mutable std::atomic<std::uint64_t> announcedGeneration_{0};
+    ///
+    /// detail::AnnounceWord wide: the 64-bit generation where that load is
+    /// lock-free, and 32 bits on a core without a 64-bit read-modify-write
+    /// (every Cortex-M), since this load is on every emit.
+    mutable std::atomic<detail::AnnounceWord> announcedKey_{0};
 
     [[nodiscard]] std::uint64_t id() const noexcept
     {

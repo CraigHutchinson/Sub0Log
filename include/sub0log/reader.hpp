@@ -11,6 +11,7 @@
  *  print (R3.3, R9.2).
  */
 
+#include "detail/atomics.hpp"
 #include "severity.hpp"
 #include "wire.hpp"
 
@@ -468,15 +469,15 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
                 break;
             }
 
-            const std::uint64_t word = wire::loadUnaligned<std::uint64_t>(image_.data() + cursor);
-
             // The producer release-stores this word after its payload
             // (chunk.hpp, "commit last"); a reader that does not acquire
             // may observe the tag while the payload loads it guards are
             // hoisted above it. That is not theoretical here: the live-tail
-            // path reads a segment a producer is still writing. The fence
-            // pairs with that release and costs nothing per record on x86.
-            std::atomic_thread_fence(std::memory_order_acquire);
+            // path reads a segment a producer is still writing.
+            // loadHeadWord's fence pairs with that release and costs nothing
+            // per record on x86; on a core without 64-bit atomics it also
+            // reads the tag half first (detail/atomics.hpp).
+            const std::uint64_t word = detail::loadHeadWord(image_.data() + cursor);
 
             if (!wire::RecordHead::isCommitted(word)) {
                 // The zero/non-zero split is the whole distinction: a zero

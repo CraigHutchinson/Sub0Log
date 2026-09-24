@@ -18,5 +18,6 @@ void runThroughputGroup(std::vector<ankerl::nanobench::Result>& allResults);
 void runDecodeGroup(std::vector<ankerl::nanobench::Result>& allResults);
 void runMergeGroup(std::vector<ankerl::nanobench::Result>& allResults);
 void runFormatGroup(std::vector<ankerl::nanobench::Result>& allResults);
+void runAtomicsGroup(std::vector<ankerl::nanobench::Result>& allResults);
 
 } // namespace sub0log::bench
