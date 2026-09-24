@@ -95,6 +95,12 @@ separate mechanisms, not one allocator parameter.
 
 ## Status
 
+**Update (issue #2):** rung 1 has landed as `Logger::createInMemory`, with
+the seam at `Segment` rather than as `BasicLogger<ChunkSource>`: `Logger`
+is named concretely by `active()`, `ScopedBind`, the emit path and the C
+ABI, so a second `Logger` type would have meant templating all of them or
+type-erasing the binding. `embedded.md` has the reasoning in full.
+
 Deferred to vNext, after v1 stabilises. Recorded now so the refactor, when
 it happens, is a rename of an existing seam rather than an invention -- and
 so nobody reintroduces a record queue under the word "backend" without

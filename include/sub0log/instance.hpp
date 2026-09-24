@@ -172,6 +172,38 @@ public:
     /// invalid Logger is harmless (its segment drops everything, counted).
     [[nodiscard]] static Logger create(const Options& options) noexcept;
 
+    /** A Logger over memory the caller owns instead of a mapped file
+     *  (issue #2; docs/vnext-backends-and-memory.md, rung 1). No file, no
+     *  mapping call, no heap allocation: `storage` is zeroed and becomes the
+     *  segment, byte-for-byte the layout a file would hold, so
+     *  `SegmentReader::open(storage)` -- or sub0log-cat on a dump of it --
+     *  reads it with nothing new.
+     *
+     *  From `options`, `threshold_`, `subsystemNames_` and
+     *  `segment_.chunkBytes_` apply; the segment is `storage.size()` bytes,
+     *  and `directory_`, `stem_` and `segment_.segmentBytes_` are not
+     *  consulted. `storage` must stay alive and unmoved for this Logger's
+     *  lifetime, be 8-aligned, and hold the header plus at least one chunk
+     *  -- otherwise the result is invalid() with error() saying which.
+     *
+     *  Everything else is the file-backed Logger's own code: the same
+     *  binding, emit path, C ABI, thresholds and Stats. A full buffer drops
+     *  and counts exactly as an exhausted file segment does (R9.1).
+     *
+     *  What it gives up is R3: the records are in process memory, so a hard
+     *  kill takes them unless `storage` itself outlives the process. See
+     *  README.md, "Where records live", for what survives what.
+     */
+    [[nodiscard]] static Logger createInMemory(std::span<std::byte> storage,
+                                               const Options& options) noexcept;
+    /// Default Options -- including the desktop-sized default chunk
+    /// (wire::cDefaultChunkBytes), so `storage` must exceed 64 KiB plus the
+    /// header; a smaller buffer wants the two-argument form with
+    /// `segment_.chunkBytes_` set. An overload rather than `= {}`: a nested
+    /// class's default member initialisers are not usable in its enclosing
+    /// class's own default arguments.
+    [[nodiscard]] static Logger createInMemory(std::span<std::byte> storage) noexcept;
+
     [[nodiscard]] bool valid() const noexcept { return segment_.valid(); }
     [[nodiscard]] detail::PlatformError error() const noexcept
     {
@@ -372,7 +404,7 @@ private:
     /// Called from create(), so a process that never logs never registers.
     static void registerForkHandlerOnce() noexcept
     {
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(SUB0LOG_PLATFORM_CUSTOM)
         static const bool once = [] {
             ::pthread_atfork(nullptr, nullptr, &Logger::detachForFork);
             return true;
@@ -390,6 +422,9 @@ private:
         std::uint64_t generation_{0};
         detail::ChunkWriter writer_{};
     };
+
+    /// Everything both factories do once the segment exists.
+    [[nodiscard]] static Logger finishCreate(detail::Segment segment, const Options& options) noexcept;
 
     [[nodiscard]] static WriterCache& cacheForThisThread() noexcept
     {
@@ -513,12 +548,32 @@ reserveRecord(Logger& logger, const std::uint32_t payloadBytes, ChunkWriter*& wr
 
 [[nodiscard]] inline Logger Logger::create(const Options& options) noexcept
 {
+    return finishCreate(
+        detail::Segment::create(options.directory_, options.stem_, options.segment_), options);
+}
+
+[[nodiscard]] inline Logger Logger::createInMemory(const std::span<std::byte> storage,
+                                                   const Options& options) noexcept
+{
+    return finishCreate(detail::Segment::createInMemory(storage, options.segment_), options);
+}
+
+[[nodiscard]] inline Logger Logger::createInMemory(const std::span<std::byte> storage) noexcept
+{
+    return createInMemory(storage, Options{});
+}
+
+[[nodiscard]] inline Logger Logger::finishCreate(detail::Segment segment, const Options& options) noexcept
+{
     Logger result{};
+    // Registered for an in-memory Logger too: caller storage may itself be
+    // a shared mapping, which a forked child would corrupt exactly as it
+    // would a file segment (detachForFork()).
     registerForkHandlerOnce();
     // A Logger created *after* a fork is this process's own, so the flag
     // stops describing the current state once one exists.
     sDetachedByFork_.store(false, std::memory_order_relaxed);
-    result.segment_ = detail::Segment::create(options.directory_, options.stem_, options.segment_);
+    result.segment_ = std::move(segment);
     result.rootCorrelation_ = detail::correlationFromEnvironment();
     result.setThreshold(options.threshold_);
 

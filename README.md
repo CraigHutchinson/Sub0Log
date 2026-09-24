@@ -243,6 +243,31 @@ removed by reading it. A reader holds nothing open between reads -- it's a
 plain read-only file read, decoded into its own memory -- so two readers
 have no state to share and nothing to coordinate.
 
+## Where records live
+
+`Logger::create` writes into a mapped file, which is what makes a record
+survive its producer being hard-killed: the pages belong to the kernel the
+moment the store completes. `Logger::createInMemory(buffer, options)` writes
+the identical format into memory you own instead -- a static array on a
+microcontroller, a buffer a test inspects -- with no file, no mapping call
+and no heap allocation, and the same reader, merger and `sub0log-cat`
+decode it.
+
+```cpp
+alignas(8) static std::byte buffer[16 * 1024];
+sub0log::Logger::Options options{};
+options.segment_.chunkBytes_ = 1024; // the 64 KiB default is a desktop number
+auto logger = sub0log::Logger::createInMemory(buffer, options);
+```
+
+What that gives up is stated, not implied: records in ordinary process
+memory die with the process, so a hard kill takes them unless the buffer
+itself outlives it (retained RAM across a warm reset, a mapping someone else
+also holds). A full buffer drops and counts exactly as a full file does.
+`docs/embedded.md` has the per-backend guarantees, the measured flash and
+RAM cost on 32-bit ARM, `SUB0LOG_PLATFORM_CUSTOM` for targets with no OS,
+and what is still open -- Cortex-M among it.
+
 ## Operating it
 
 Three things a service needs to know before it runs this in anger, none of

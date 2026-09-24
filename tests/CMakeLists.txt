@@ -116,6 +116,11 @@ endif()
 # unit sees -- see tests/qt_keywords/CMakeLists.txt.
 add_subdirectory(qt_keywords)
 
+# The in-memory producer under firmware constraints (issue #2): built
+# -fno-exceptions -fno-rtti and heap-counted, so it is its own executable
+# rather than a doctest case -- see tests/embedded/CMakeLists.txt.
+add_subdirectory(embedded)
+
 # Not a fourth doctest category (sub0log_add_test_category): it doesn't
 # exercise wire.hpp/encode.hpp against the in-tree target at all, it proves
 # an out-of-tree find_package(Sub0Log) works against an installed one.

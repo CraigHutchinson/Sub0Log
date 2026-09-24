@@ -136,7 +136,10 @@ Already true, and the hard part:
   otherwise have had the standard library silently substitute a lock table,
   making R1.3 quietly false. It now fails the build and says why.
 
-Still missing, in the order that matters:
+Still missing, in the order that matters. (Item 1 has since landed as
+`Logger::createInMemory`, and items 3-5 now have measurements and a
+proposal behind them -- `embedded.md` is the current state; this list is
+kept as the analysis that motivated it.)
 
 1. **A backend that is not a file mapping.** `mmap`, a filesystem and a
    pre-sized file are all assumed. `vnext-frontend-backend.md` already

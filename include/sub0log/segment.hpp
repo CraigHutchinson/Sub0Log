@@ -1,8 +1,8 @@
 #pragma once
 
 /** @file segment.hpp
- *  @brief One process's segment: a mapped file of chunks, and the single
- *         atomic chunk claim.
+ *  @brief One process's segment: a mapped file (or caller-owned memory) of
+ *         chunks, and the single atomic chunk claim.
  */
 
 #include "chunk.hpp"
@@ -12,8 +12,10 @@
 #include <atomic>
 #include <charconv>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string>
+#include <utility>
 
 namespace sub0log {
 
@@ -39,6 +41,14 @@ using SegmentOptions = ::sub0log::SegmentOptions;
  *  (magic, version, geometry, random generation, process id, anchor pair)
  *  before any record can be written.
  *
+ *  Or, through createInMemory(), does the same over memory the caller owns
+ *  (issue #2, docs/vnext-backends-and-memory.md rung 1). Everything past
+ *  create is identical either way: claimChunk() only ever sees `bytes_`, so
+ *  the backing is decided once, off the producer path, and a record written
+ *  into caller memory is byte-for-byte what the file would have held --
+ *  the same SegmentReader/Decoder/Merger read it. What changes is only what
+ *  survives: see createInMemory().
+ *
  *  claimChunk() is the only cross-thread operation on the producer path:
  *  one fetch_add(relaxed) on the in-mapping cursor at wire::cNextChunkOffset,
  *  then the claiming thread stamps the ChunkHeader (generation, thread id,
@@ -50,8 +60,11 @@ using SegmentOptions = ::sub0log::SegmentOptions;
 class Segment {
 public:
     Segment() noexcept = default;
-    Segment(Segment&&) noexcept = default;
-    Segment& operator=(Segment&&) noexcept = default;
+    // Not defaulted: `bytes_` is a view, and a defaulted move would leave the
+    // moved-from Segment still valid() over the same memory -- two claim
+    // paths onto one cursor, one of them owned by nobody.
+    Segment(Segment&& other) noexcept;
+    Segment& operator=(Segment&& other) noexcept;
 
     /// Path is `<directory>/<stem>-<pid>-<generation>.s0l`. On failure the
     /// result has valid() false and error() set.
@@ -59,11 +72,32 @@ public:
                                         const std::string& stem,
                                         const SegmentOptions& options = {}) noexcept;
 
-    [[nodiscard]] bool valid() const noexcept { return mapping_.valid(); }
+    /** A segment over `storage`, which the caller owns and must keep alive
+     *  (and unmoved) for as long as this Segment -- and so the Logger holding
+     *  it -- exists. No file, no mapping call, no allocation: the whole
+     *  storage is zeroed, the header written, and that is all.
+     *
+     *  The segment is `storage.size()` bytes; `options.segmentBytes_` is not
+     *  consulted. `storage` must be aligned to wire::cRecordAlign (a
+     *  `alignas(8) std::byte[N]` or any `new`/`malloc` result is), and large
+     *  enough for the header and one chunk; otherwise the result is invalid
+     *  with error() saying which.
+     *
+     *  What this gives up is R3, by declared choice rather than accident:
+     *  the records live in process memory, so a hard kill takes them unless
+     *  the caller's storage itself outlives the process (a retained-RAM
+     *  region that survives a warm reset, a shared mapping a supervisor also
+     *  holds). The library does not know which, and does not claim either.
+     */
+    [[nodiscard]] static Segment createInMemory(std::span<std::byte> storage,
+                                                const SegmentOptions& options = {}) noexcept;
+
+    [[nodiscard]] bool valid() const noexcept { return bytes_.data() != nullptr; }
     [[nodiscard]] PlatformError error() const noexcept
     {
         return geometryError_ ? geometryError_ : mapping_.error();
     }
+    /// Empty for an in-memory segment: there is no file.
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
     [[nodiscard]] std::uint64_t generation() const noexcept { return generation_; }
 
@@ -72,6 +106,19 @@ public:
     [[nodiscard]] ChunkWriter claimChunk() noexcept;
 
 private:
+    /// Refuses a chunk size the wire format cannot carry; the empty error
+    /// when it is fine. Shared by both creation paths.
+    [[nodiscard]] static PlatformError validateChunkBytes(std::uint32_t chunkBytes) noexcept;
+
+    /// Stamps the header and cursor over `bytes` and records the geometry --
+    /// everything both creation paths do once the memory exists.
+    void initialise(std::span<std::byte> bytes, std::uint32_t chunkBytes,
+                    std::uint64_t generation) noexcept;
+
+    /// The segment's bytes, whoever owns them: mapping_'s view for a file
+    /// segment, the caller's span for an in-memory one. Null when invalid.
+    std::span<std::byte> bytes_{};
+    /// Owns the file mapping; empty for an in-memory segment.
     FileMapping mapping_{};
     /// Set when create() refused the requested geometry; reported by error()
     /// ahead of the mapping's own, because the mapping was never attempted.
@@ -90,6 +137,142 @@ private:
 
 // ---------------------------------------------------------------------------
 // Implementation
+
+inline Segment::Segment(Segment&& other) noexcept
+    : bytes_{std::exchange(other.bytes_, {})},
+      mapping_{std::move(other.mapping_)},
+      geometryError_{other.geometryError_},
+      path_{std::move(other.path_)},
+      generation_{other.generation_},
+      chunkBytes_{other.chunkBytes_},
+      chunkCount_{other.chunkCount_},
+      sizeClass_{other.sizeClass_}
+{
+}
+
+inline Segment& Segment::operator=(Segment&& other) noexcept
+{
+    if (this != &other) {
+        bytes_ = std::exchange(other.bytes_, {});
+        mapping_ = std::move(other.mapping_);
+        geometryError_ = other.geometryError_;
+        path_ = std::move(other.path_);
+        generation_ = other.generation_;
+        chunkBytes_ = other.chunkBytes_;
+        chunkCount_ = other.chunkCount_;
+        sizeClass_ = other.sizeClass_;
+    }
+    return *this;
+}
+
+[[nodiscard]] inline PlatformError Segment::validateChunkBytes(const std::uint32_t chunkBytes) noexcept
+{
+    // Geometry comes from a caller (Logger::Options::segment_ is public), so
+    // it is validated before anything derives a size from it. Two ways it
+    // can be poisonous, both caught here rather than in the reader:
+    //   - chunkBytes <= sizeof(ChunkHeader) makes the body size underflow
+    //     and hands ChunkWriter a span over most of the address space;
+    //   - a chunk size that is not 8-aligned puts head words at 4-aligned
+    //     addresses, where the atomic_ref the commit protocol depends on is
+    //     undefined (and on strict-alignment targets, a fault).
+    // The reader already refuses such a segment; a producer that can create
+    // one only to have every reader reject it is worse than failing now.
+    constexpr std::uint32_t cMinChunkBytes =
+        static_cast<std::uint32_t>(sizeof(wire::ChunkHeader)) + 2u * wire::cRecordAlign;
+    static_assert(wire::cChunkSizeUnit >= cMinChunkBytes,
+                  "the smallest representable size class must itself be a valid chunk size");
+    static_assert(wire::cSegmentHeaderBytes % wire::cRecordAlign == 0u);
+    if (chunkBytes < cMinChunkBytes || (chunkBytes % wire::cRecordAlign) != 0u) {
+        return PlatformError{0, "Segment::create: chunkBytes must be 8-aligned and larger "
+                                "than a chunk header"};
+    }
+    return PlatformError{};
+}
+
+inline void Segment::initialise(const std::span<std::byte> bytes, const std::uint32_t chunkBytes,
+                                const std::uint64_t generation) noexcept
+{
+    const std::uint32_t headerBytes = wire::cSegmentHeaderBytes;
+    const std::uint64_t segmentBytes = bytes.size();
+
+    // The anchor pair is read once, before any record can be written, so a
+    // merger can align this segment's monotonic readings with wall-clock
+    // time without decoding anything (R5.3).
+    const std::uint64_t anchorMono = monotonicNowNs();
+    const std::uint64_t anchorWall = wallNowNs();
+
+    wire::SegmentHeader header{};
+    header.magic_ = wire::cMagic;
+    header.formatVersion_ = wire::cFormatVersion;
+    header.reserved0_ = 0u;
+    header.headerBytes_ = headerBytes;
+    header.chunkBytes_ = chunkBytes;
+    header.reserved1_ = 0u;
+    header.segmentBytes_ = segmentBytes;
+    header.generation_ = generation;
+    header.processId_ = currentProcessId();
+    header.anchorMonoNs_ = anchorMono;
+    header.anchorWallNs_ = anchorWall;
+
+    std::byte* const base = bytes.data();
+    wire::storeUnaligned(base, header);
+
+    // A fresh file is already zero-filled (ftruncate) and caller memory has
+    // been zeroed by createInMemory(), so the cursor is zero regardless;
+    // stamped explicitly so the invariant does not rely on that being
+    // remembered.
+    wire::storeUnaligned(base + wire::cNextChunkOffset, std::uint64_t{0});
+
+    bytes_ = bytes;
+    generation_ = generation;
+    chunkBytes_ = chunkBytes;
+    chunkCount_ = segmentBytes > headerBytes
+                      ? static_cast<std::uint32_t>((segmentBytes - headerBytes) / chunkBytes)
+                      : 0u;
+    // Best-effort, never a rejection: a chunkBytes_ that happens not to be
+    // wire::cChunkSizeUnit << k for any k just gets the 0 ("unspecified")
+    // sentinel, exactly as every chunk size did before this field existed
+    // (wire.hpp's cChunkSizeUnit comment) -- every value this codebase
+    // actually configures anywhere already is representable, but nothing
+    // here requires a caller's choice to be.
+    sizeClass_ = wire::sizeClassForChunkBytes(chunkBytes).value_or(0u);
+}
+
+[[nodiscard]] inline Segment Segment::createInMemory(const std::span<std::byte> storage,
+                                                     const SegmentOptions& options) noexcept
+{
+    Segment result{};
+    if (const PlatformError bad = validateChunkBytes(options.chunkBytes_)) {
+        result.geometryError_ = bad;
+        return result;
+    }
+    // The cursor at wire::cNextChunkOffset is an atomic_ref target, and every
+    // head word after it is too: an under-aligned base makes the whole
+    // commit protocol undefined, not merely slow.
+    constexpr std::size_t cAlign =
+        std::atomic_ref<std::uint64_t>::required_alignment > wire::cRecordAlign
+            ? std::atomic_ref<std::uint64_t>::required_alignment
+            : wire::cRecordAlign;
+    if (storage.data() == nullptr
+        || reinterpret_cast<std::uintptr_t>(storage.data()) % cAlign != 0u) {
+        result.geometryError_ =
+            PlatformError{0, "Segment::createInMemory: storage must be non-null and 8-aligned"};
+        return result;
+    }
+    if (storage.size() < std::uint64_t{wire::cSegmentHeaderBytes} + options.chunkBytes_) {
+        result.geometryError_ = PlatformError{
+            0, "Segment::createInMemory: storage is smaller than the header plus one chunk"};
+        return result;
+    }
+
+    // Caller memory is not the freshly-truncated file the reader's "a zero
+    // head word is unwritten" rule was written against: whatever it held
+    // before would read as records. Zeroed once, here, on the control
+    // thread -- claimChunk() stays exactly as cheap as the file path's.
+    std::memset(storage.data(), 0, storage.size());
+    result.initialise(storage, options.chunkBytes_, randomGeneration());
+    return result;
+}
 
 [[nodiscard]] inline Segment Segment::create(const std::string& directory,
                                              const std::string& stem,
@@ -116,83 +299,22 @@ private:
     path += hexStr;
     path += ".s0l";
 
-    const std::uint32_t headerBytes = wire::cSegmentHeaderBytes;
-    const std::uint32_t chunkBytes = options.chunkBytes_;
-    const std::uint64_t segmentBytes = options.segmentBytes_;
-
-    // Geometry comes from a caller (Logger::Options::segment_ is public), so
-    // it is validated before anything derives a size from it. Two ways it
-    // can be poisonous, both caught here rather than in the reader:
-    //   - chunkBytes <= sizeof(ChunkHeader) makes the body size underflow
-    //     and hands ChunkWriter a span over most of the address space;
-    //   - a chunk size that is not 8-aligned puts head words at 4-aligned
-    //     addresses, where the atomic_ref the commit protocol depends on is
-    //     undefined (and on strict-alignment targets, a fault).
-    // The reader already refuses such a segment; a producer that can create
-    // one only to have every reader reject it is worse than failing now.
-    constexpr std::uint32_t cMinChunkBytes =
-        static_cast<std::uint32_t>(sizeof(wire::ChunkHeader)) + 2u * wire::cRecordAlign;
-    static_assert(wire::cChunkSizeUnit >= cMinChunkBytes,
-                  "the smallest representable size class must itself be a valid chunk size");
-    if (chunkBytes < cMinChunkBytes || (chunkBytes % wire::cRecordAlign) != 0u
-        || (headerBytes % wire::cRecordAlign) != 0u) {
-        result.mapping_ = FileMapping{};
-        result.geometryError_ =
-            PlatformError{0, "Segment::create: chunkBytes must be 8-aligned and larger "
-                             "than a chunk header"};
+    if (const PlatformError bad = validateChunkBytes(options.chunkBytes_)) {
+        result.geometryError_ = bad;
         return result;
     }
-    // Best-effort, never a rejection: a chunkBytes_ that happens not to be
-    // wire::cChunkSizeUnit << k for any k just gets the 0 ("unspecified")
-    // sentinel below, exactly as every chunk size did before this field
-    // existed (wire.hpp's cChunkSizeUnit comment) -- every value this
-    // codebase actually configures anywhere already is representable, but
-    // nothing here requires a caller's choice to be.
-    const std::uint8_t sizeClass = wire::sizeClassForChunkBytes(chunkBytes).value_or(0u);
-    const std::uint32_t chunkCount =
-        (segmentBytes > headerBytes && chunkBytes > 0u)
-            ? static_cast<std::uint32_t>((segmentBytes - headerBytes) / chunkBytes)
-            : 0u;
 
-    FileMapping mapping = FileMapping::create(path, segmentBytes);
+    FileMapping mapping = FileMapping::create(path, options.segmentBytes_);
     result.path_ = path;
     if (!mapping.valid()) {
         result.mapping_ = std::move(mapping);
         return result;
     }
 
-    // The anchor pair is read once, before any record can be written, so a
-    // merger can align this segment's monotonic readings with wall-clock
-    // time without decoding anything (R5.3).
-    const std::uint64_t anchorMono = monotonicNowNs();
-    const std::uint64_t anchorWall = wallNowNs();
-
-    wire::SegmentHeader header{};
-    header.magic_ = wire::cMagic;
-    header.formatVersion_ = wire::cFormatVersion;
-    header.reserved0_ = 0u;
-    header.headerBytes_ = headerBytes;
-    header.chunkBytes_ = chunkBytes;
-    header.reserved1_ = 0u;
-    header.segmentBytes_ = segmentBytes;
-    header.generation_ = generation;
-    header.processId_ = pid;
-    header.anchorMonoNs_ = anchorMono;
-    header.anchorWallNs_ = anchorWall;
-
-    std::byte* const base = mapping.bytes().data();
-    wire::storeUnaligned(base, header);
-
-    // ftruncate already zero-fills a freshly created file, so the cursor is
-    // zero regardless; stamped explicitly so the invariant does not rely on
-    // that being remembered.
-    wire::storeUnaligned(base + wire::cNextChunkOffset, std::uint64_t{0});
-
-    result.mapping_ = std::move(mapping);
-    result.generation_ = generation;
-    result.chunkBytes_ = chunkBytes;
-    result.chunkCount_ = chunkCount;
-    result.sizeClass_ = sizeClass;
+    const std::span<std::byte> bytes = mapping.bytes();
+    result.mapping_ = std::move(mapping); // moves the handle; the view is unchanged
+    // The generation already named the file; the header must carry the same.
+    result.initialise(bytes, options.chunkBytes_, generation);
     return result;
 }
 
@@ -202,7 +324,7 @@ private:
         return ChunkWriter{};
     }
 
-    std::byte* const base = mapping_.bytes().data();
+    std::byte* const base = bytes_.data();
     // The only cross-thread synchronisation on the producer path (R1.3):
     // one fetch_add(relaxed) on the in-mapping cursor. startUint64LifetimeAt
     // (wire.hpp) is what makes forming this reference well-defined rather

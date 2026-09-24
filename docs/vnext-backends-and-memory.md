@@ -161,6 +161,10 @@ way `MemorySegment` says it gives up durability.
 
 ## Suggested order
 
+(Step 1 has landed -- `Logger::createInMemory`, with the seam at `Segment`
+instead of a `Logger` template parameter; `embedded.md` says why and what
+was measured.)
+
 1. `ChunkSource` seam + `MemorySegment` (rung 1). Small, proves the seam,
    unlocks embedded and tests.
 2. Per-call-site channels (`sub0log_*_to`) with aggregated `Stats`. Depends

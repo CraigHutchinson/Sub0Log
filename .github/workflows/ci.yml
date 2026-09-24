@@ -165,6 +165,35 @@ jobs:
       - name: Run the packaging test
         run: ctest --test-dir build -C Debug -L packaging --output-on-failure
 
+  embedded-arm:
+    # Issue #2: the in-memory producer under SUB0LOG_PLATFORM_CUSTOM,
+    # cross-compiled and linked for a bare-metal 32-bit ARM core with no
+    # OS, no exceptions and no RTTI. Gating on "it builds and links";
+    # the size it prints is the measurement docs/embedded.md quotes, and is
+    # reported rather than gated for the same reason benchmarks-smoke is.
+    # Cortex-A7, not a Cortex-M: chunk.hpp refuses targets without lock-free
+    # 64-bit atomics, which is every Cortex-M -- docs/embedded.md has why
+    # and the proposed way past it.
+    name: embedded-arm
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install arm-none-eabi
+        run: >
+          sudo apt-get update &&
+          sudo apt-get install -y gcc-arm-none-eabi libstdc++-arm-none-eabi-newlib
+      - name: Build the freestanding probe (Cortex-A7, -Os)
+        run: >
+          arm-none-eabi-g++ -std=c++23 -mcpu=cortex-a7 -marm -Os
+          -fno-exceptions -fno-rtti -ffunction-sections -fdata-sections
+          -DSUB0LOG_PLATFORM_CUSTOM -Iinclude
+          --specs=nosys.specs -Wl,--gc-sections
+          tests/embedded/freestanding_probe.cpp -o probe.elf
+      - name: Size
+        run: |
+          arm-none-eabi-size probe.elf
+          arm-none-eabi-nm -C -S --size-sort probe.elf | grep -E ' (sub0log|main$)' || true
+
   stress-quick:
     # The stress harness asserts invariants under load rather than measuring,
     # so unlike the KPI numbers it *is* a legitimate pass/fail gate. --quick

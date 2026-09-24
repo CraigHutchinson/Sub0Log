@@ -56,6 +56,11 @@ instead, the fixed costs per thread and per call site, and an honest gap
 analysis for memory-restricted targets -- which are not in scope, but are
 closer than they look.
 
+**`embedded.md`** is where that gap analysis went next (issue #2):
+`Logger::createInMemory` over caller-owned memory, an OS-less platform arm,
+what each backend does and does not survive, flash and RAM measured on
+32-bit ARM, and a format-preserving design for cores without 64-bit atomics.
+
 **`prior-art-backends-and-memory.md`** checks that design against what
 already exists, and changes two of its decisions: Boost.Log's
 frontend/backend already names a queue-and-worker split we reject, so the
