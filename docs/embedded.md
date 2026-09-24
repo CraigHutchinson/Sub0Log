@@ -1,0 +1,228 @@
+# Embedded and mobile: caller-owned memory, what it guarantees, and what's left
+
+Issue #2 asks for the producer to be separable from its storage, so that a
+firmware or mobile target can hand Sub0Log a buffer instead of a mapped
+file, and for the guarantees that change to be stated rather than implied.
+This file is the design record for that work: what landed, what was
+measured, and what is still open, with the reason each open item is open.
+
+`memory.md` ("What a memory-restricted or embedded target would need")
+listed the gap before any of this existed; the numbered items below refer
+back to it.
+
+## What landed
+
+**`Logger::createInMemory(std::span<std::byte> storage, options)`.** The
+same `Logger`, the same emit path, the same C ABI, thresholds and `Stats`,
+writing the same wire format into memory the caller owns. `storage` is
+zeroed at creation (caller memory is not a freshly truncated file, and a
+previous run's committed records would otherwise read back as current),
+then the ordinary segment header is written into it. After that, nothing on
+the producer path knows the difference: `SegmentReader::open(storage)`
+reads it in-process, and a dump of it decodes with `sub0log-cat`.
+
+**`SUB0LOG_PLATFORM_CUSTOM`.** A third arm of `detail/platform.hpp` for
+targets with no OS the header knows. It includes no OS header, file mapping
+always fails (so only `createInMemory` is usable), `pthread_atfork` is not
+registered, and the clock and identity come from four C functions the
+consumer defines once:
+
+```cpp
+extern "C" std::uint64_t sub0log_platform_monotonic_ns(void) noexcept; // tick counter, in ns
+extern "C" std::uint64_t sub0log_platform_wall_ns(void) noexcept;      // RTC, or 0
+extern "C" std::uint64_t sub0log_platform_process_id(void) noexcept;   // image/node id
+extern "C" std::uint64_t sub0log_platform_thread_id(void) noexcept;    // current task
+```
+
+### Where the seam went, and why not `BasicLogger<ChunkSource>`
+
+`vnext-frontend-backend.md` sketched the seam as a template parameter on
+`Logger`. Building it showed the seam belongs one level lower, at `Segment`,
+for a reason that sketch did not have in front of it: **`Logger` is named,
+concretely, by everything that finds the bound instance** --
+`Logger::active()`, `ScopedBind`, `detail::emitRecord`, the C ABI's host
+table. A `BasicLogger<MemorySegment>` is a different type, so either all of
+those become templates (and every plugin boundary with them), or the active
+binding becomes type-erased, which is a per-record indirection that R1 does
+not allow.
+
+`Segment` was already only "a span of bytes, a geometry, and whatever owns
+the bytes". `claimChunk()` now reads `bytes_` rather than asking the
+`FileMapping`, and there are two ways to fill `bytes_`: a file mapping, or
+the caller's span. The decision is made once at creation and costs the
+producer path nothing -- no template, no virtual, no branch. This is
+`vnext-backends-and-memory.md`'s rung 1 with the seam in a better place; the
+`ChunkSource` name is still right for the concept, it just did not need to
+be a type parameter.
+
+## What each backend guarantees
+
+A backend chooses where bytes live and how durable they are, never what
+they mean. Stated per backend, because "it's the same format" is not the
+same claim as "it survives the same things":
+
+| | file segment (`Logger::create`) | in-memory (`Logger::createInMemory`) |
+|---|---|---|
+| wire format, decoder, `sub0log-cat` | yes | yes -- identical bytes |
+| no allocation, no lock on the emit path | yes | yes -- and none at creation either (measured, below) |
+| survives the producer being hard-killed (R3.1) | **yes**: the pages belong to the kernel | **only if `storage` does**: ordinary process memory dies with the process. A retained-RAM region that survives a warm reset, or a shared mapping a supervisor also holds, keeps it; the library cannot tell which it was given and claims neither |
+| survives power loss / kernel crash | no (never claimed: `hard-kill.md`) | no, unless the caller's storage is itself non-volatile |
+| multi-process merge (R5) | yes | only after the caller dumps the buffer somewhere a reader can see it |
+| full buffer | drops, counted in `Stats::droppedRecords_` (R9.1) | the same code path: drops, counted |
+| fork safety | detached in the child | detached in the child (caller storage may be a shared mapping) |
+
+The full-buffer row is not a new mechanism: exhausting a caller buffer is
+exactly exhausting a file segment, so the existing counters are the
+"explicit drop/truncation counters" the issue asks for, and they are tested
+against a buffer sized to run dry (below).
+
+## Evidence, against issue #2's acceptance criteria
+
+| criterion | status | where |
+|---|---|---|
+| static-memory producer path: no heap allocation, no OS mapping call | **met**, measured | `tests/embedded/producer.cpp` replaces global `operator new` and counts across `createInMemory` + ~2000 records; the count must be zero. A deliberately injected `new` fails it. The segment path is empty -- there is no file |
+| injected full-buffer behaviour tested, counters accurate | **met** | `memory_segment.test.cpp`: a buffer of exactly three chunks, 500 records; asserts `decoded + dropped == emitted`, and that the kept records are the oldest prefix, in order |
+| no-exceptions, no-RTTI build of the embedded producer | **met** on GCC/Clang | `Sub0LogEmbeddedProducer` and `Sub0LogFreestandingProbe` are built `-fno-exceptions -fno-rtti`; MSVC builds with `/GR-` only (MSVC's STL does not support `_HAS_EXCEPTIONS=0`) |
+| code size and RAM measured, not estimated | **met** for 32-bit ARM Cortex-A; **blocked** for Cortex-M (below) | numbers below; CI's `embedded-arm` job rebuilds and prints them |
+| embedded-produced segment decodes with the desktop tooling | **met** | `embedded::decode` runs `sub0log-cat` on the buffer `embedded::producer` dumped |
+| Android pause/resume/termination established by a test | **not done** | needs an NDK toolchain and an emulator in CI; see "Still open" |
+
+Also covered: a previous run's records in the buffer do not reappear
+(`memory_segment.test.cpp`, confirmed to fail with the zeroing removed);
+misaligned, undersized and empty storage are refused with a reason; moving
+an in-memory `Logger` leaves exactly one owner of the buffer.
+
+## Measured cost
+
+`tests/embedded/freestanding_probe.cpp`: an in-memory `Logger` over a
+16 KiB static buffer, 1 KiB chunks, ten call sites of assorted argument
+shapes, `SUB0LOG_PLATFORM_CUSTOM`. Built with `arm-none-eabi-g++` 13.2.1,
+`-mcpu=cortex-a7 -marm -Os -fno-exceptions -fno-rtti -ffunction-sections
+-fdata-sections -Wl,--gc-sections`, newlib `nosys.specs`. Sizes from
+`arm-none-eabi-nm -S`, summed by where the symbol comes from.
+
+**Flash**
+
+| | 1 call site | 10 call sites |
+|---|---|---|
+| Sub0Log's own code (`sub0log::*` + `main`) | 3.8 KB | 8.7 KB |
+| C++ runtime: `operator new`, EH personality, unwinder | 6.7 KB | 6.7 KB |
+| `malloc`/`free` | 3.4 KB | 3.4 KB |
+| `getenv`/`strtoull` | 1.1 KB | 1.1 KB |
+| other libc/libgcc (`memcpy`, `memset`, 64-bit division, ...) | 9.1 KB | 9.1 KB |
+
+So the library itself is about **4 KB plus roughly 0.5 KB per distinct
+call site** (a site is a template instantiation over its argument types, so
+sites sharing a shape share code). The ~11 KB of runtime above it is worth
+looking at, because none of it is used at run time:
+
+- **`operator new`, the unwinder and `malloc`** (~10 KB) are linked because
+  `Logger::Options` and `Segment::path_` are `std::string` (the link map
+  shows the probe's own object file referencing `operator new` and
+  `operator delete`, and `new_op.o` pulling in `bad_alloc`, the EH runtime
+  and `malloc` behind it). Short defaults
+  sit in the small-string buffer, so nothing allocates -- the counter above
+  proves that -- but `std::string`'s destructor still references
+  `operator delete`, and `operator new` references `std::bad_alloc`. This
+  is `memory.md` item 3, now with a number on it.
+- **`getenv`/`strtoull`** (~1 KB) are `correlationFromEnvironment()`, R5.4's
+  inherited correlation id -- meaningless without processes.
+
+A firmware image that already has `malloc` and `memcpy` pays about 4 KB +
+0.5 KB/site + ~7 KB; removing the strings would take the 7 KB away.
+
+**RAM**
+
+| | 32-bit ARM | x86-64 |
+|---|---|---|
+| `sizeof(Logger)` (wherever the caller puts it) | 192 B | 240 B |
+| per logging thread: the writer cache (`thread_local`) | 32 B | 32 B |
+| per call site: its `SiteDescriptor` (static, `constinit`) | 40 B | 56 B |
+| the segment | the caller's buffer, exactly | the caller's buffer, exactly |
+
+Plus a pointer for the active binding. Nothing else: no queue, no heap, no
+worker thread.
+
+## Still open
+
+**1. Cortex-M, and any core without lock-free 64-bit atomics.**
+`chunk.hpp` `static_assert`s `std::atomic_ref<std::uint64_t>::is_always_lock_free`,
+because the commit head word and the claim cursor are both u64, and a
+library-substituted lock would make R1.3 quietly false. ARMv7-M and ARMv8-M
+(every Cortex-M, including the nRF54-class parts that carry RRAM) have
+32-bit exclusives only, so today the build refuses them -- deliberately.
+
+The proposed way past it does **not** fork the wire format, which
+`memory.md` item 5 assumed it would have to:
+
+- *Commit.* The head word packs `payloadBytes | kind | flags` into its low
+  32 bits and `sequence | commitTag` into its high 32 bits. On a
+  little-endian core, storing the low half plainly and then the high half
+  with a 32-bit release store writes exactly the bytes the 64-bit store
+  does, and a reader that acquire-loads the high half first (the one
+  holding the tag) and the low half second can never see a tag without its
+  length. A desktop reader of a dump is not concurrent, so it is unchanged.
+- *Claim.* The cursor at `wire::cNextChunkOffset` never exceeds the chunk
+  count, which is already u32. A 32-bit compare-exchange on its low half,
+  bounded so that it stops at the count instead of counting past it, keeps
+  the high half zero -- identical bytes again -- and cannot wrap the way a
+  bare 32-bit `fetch_add` could after four billion refused claims.
+- *Cost.* A CAS loop instead of one `fetch_add` on the claim, which runs
+  once per chunk, not per record. The commit stays one store.
+- *Not covered.* ARMv6-M (Cortex-M0/M0+) has no exclusives at all; that
+  needs an interrupt-masking critical section, which is a lock in all but
+  name and should be a separately named, opt-in policy rather than a
+  silent fallback. Big-endian cores need the halves swapped.
+
+This touches the one piece of cross-thread synchronisation on the producer
+path, so it is written down for review here rather than shipped in the
+same change as the storage seam.
+
+**2. `std::string` out of the configuration surface** (`memory.md` item 3,
+`vnext-backends-and-memory.md` step 4). Now measured at ~7-10 KB of flash
+on a target that did not otherwise need `operator new`. The shape is a
+`createInMemory` overload that takes only a threshold, chunk size and
+subsystem names -- nothing that can hold a `std::string` -- plus a
+`Segment` that does not carry a path unless it is a file.
+
+**3. A thread-local-free mode** (`memory.md` item 4). The writer cache is
+`thread_local`. On the Cortex-A7 probe the compiler reads the thread pointer
+straight from the CP15 thread-ID register (`mrc p15, 0, rN, c13, c0, 3`), so
+it links with nothing extra -- but it only *works* if the RTOS sets that
+register per task and lays out a `.tbss` block for each (Zephyr does, with
+`CONFIG_THREAD_LOCAL_STORAGE`). Where that is not available, this needs a
+single-writer mode with the cache as a plain `Logger` member.
+
+**4. Android.** An NDK consumer test using app-private storage, and a test
+that establishes -- rather than assumes -- what survives pause, resume and
+termination. The file-segment path is POSIX and should need nothing new on
+Android; what needs establishing is the process lifecycle (a backgrounded
+app killed by the low-memory killer is a hard kill, which R3.1 covers for a
+file segment and does not for an in-memory one). It needs an NDK toolchain
+and an emulator job in CI, which this change does not add.
+
+**5. A bounded-segment rotation/handoff recipe** for long-running sessions.
+`vnext-segment-rollover.md` is the design; until it is built, the recipe is
+"a new `Logger` per interval, merged at read time", which `README.md`'s
+"Operating it" already describes.
+
+**6. Keeping logging off ISR-equivalent paths.** Nothing here makes an emit
+interrupt-safe: an interrupt that preempts a thread mid-record on the same
+core would share that thread's writer cache. Until a per-context channel
+exists (`vnext-backends-and-memory.md` step 2), the rule for firmware is the
+issue's own: no logging from an ISR unless that specific path has been
+verified safe.
+
+## Reproducing the numbers
+
+```sh
+arm-none-eabi-g++ -std=c++23 -mcpu=cortex-a7 -marm -Os -fno-exceptions -fno-rtti \
+    -ffunction-sections -fdata-sections -DSUB0LOG_PLATFORM_CUSTOM -Iinclude \
+    --specs=nosys.specs -Wl,--gc-sections \
+    tests/embedded/freestanding_probe.cpp -o probe.elf
+arm-none-eabi-size probe.elf
+arm-none-eabi-nm -C -S --size-sort probe.elf
+```
+
+The same file with `-mcpu=cortex-m4 -mthumb` stops at the `static_assert`
+in `chunk.hpp` -- which is item 1, reproduced.

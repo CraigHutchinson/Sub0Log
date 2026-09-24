@@ -15,6 +15,15 @@
  *   - A test asserts the mapping has a real backing file, because this is
  *     the kind of property that decays as a comment.
  *
+ *  SUB0LOG_PLATFORM_CUSTOM (issue #2) selects a third arm for targets with
+ *  no OS this header knows -- an RTOS, bare metal. It includes no OS header,
+ *  FileMapping always fails (so only Logger::createInMemory is usable), and
+ *  the clock and identity come from four C functions the consumer defines
+ *  once, declared below: sub0log_platform_monotonic_ns,
+ *  sub0log_platform_wall_ns, sub0log_platform_process_id and
+ *  sub0log_platform_thread_id. The clock rule still applies to whatever the
+ *  consumer's monotonic hook returns.
+ *
  *  The clock rule (R5.3): monotonicNowNs() must be comparable across
  *  processes on one machine -- CLOCK_MONOTONIC on Linux, QPC on Windows,
  *  CLOCK_MONOTONIC_RAW on macOS -- and is only ever interpreted through the
@@ -30,7 +39,15 @@
 
 #include <cerrno>
 
-#if defined(_WIN32)
+#if defined(SUB0LOG_PLATFORM_CUSTOM)
+// No OS headers: the consumer supplies the platform (see the file comment).
+extern "C" {
+std::uint64_t sub0log_platform_monotonic_ns(void) noexcept;
+std::uint64_t sub0log_platform_wall_ns(void) noexcept;
+std::uint64_t sub0log_platform_process_id(void) noexcept;
+std::uint64_t sub0log_platform_thread_id(void) noexcept;
+}
+#elif defined(_WIN32)
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
 #  endif
@@ -195,7 +212,9 @@ private:
 
 inline void FileMapping::releaseUnlocked() noexcept
 {
-#if defined(_WIN32)
+#if defined(SUB0LOG_PLATFORM_CUSTOM)
+    // Nothing is ever mapped on this arm.
+#elif defined(_WIN32)
     if (base_ != nullptr) {
         ::UnmapViewOfFile(base_);
     }
@@ -261,7 +280,12 @@ inline FileMapping::~FileMapping()
 inline FileMapping FileMapping::create(const std::string& path, std::uint64_t bytes) noexcept
 {
     FileMapping result{};
-#if defined(_WIN32)
+#if defined(SUB0LOG_PLATFORM_CUSTOM)
+    (void)path;
+    (void)bytes;
+    result.error_ = PlatformError{0, "FileMapping: no file mapping under SUB0LOG_PLATFORM_CUSTOM "
+                                     "(use Logger::createInMemory)"};
+#elif defined(_WIN32)
     // Sharing is the point, not a concession: a reader tails a live segment
     // while its producer is still writing (docs/record-model.md, "the console
     // view is a view"), and a merge reads segments of processes that are still
@@ -340,7 +364,10 @@ inline FileMapping FileMapping::create(const std::string& path, std::uint64_t by
 inline FileMapping FileMapping::openReadOnly(const std::string& path) noexcept
 {
     FileMapping result{};
-#if defined(_WIN32)
+#if defined(SUB0LOG_PLATFORM_CUSTOM)
+    (void)path;
+    result.error_ = PlatformError{0, "FileMapping: no file mapping under SUB0LOG_PLATFORM_CUSTOM"};
+#elif defined(_WIN32)
     // FILE_SHARE_WRITE is required on the *reader's* side too: Windows checks
     // the opener's share mode against existing handles' access, so a reader
     // that does not permit writing cannot open a segment a producer still has
@@ -422,7 +449,29 @@ inline FileMapping FileMapping::openReadOnly(const std::string& path) noexcept
 /// Fills the segment generation: random, non-zero (R3.4).
 [[nodiscard]] std::uint64_t randomGeneration() noexcept;
 
-#if defined(_WIN32)
+#if defined(SUB0LOG_PLATFORM_CUSTOM)
+
+[[nodiscard]] inline std::uint64_t monotonicNowNs() noexcept
+{
+    return sub0log_platform_monotonic_ns();
+}
+
+[[nodiscard]] inline std::uint64_t wallNowNs() noexcept
+{
+    return sub0log_platform_wall_ns();
+}
+
+[[nodiscard]] inline std::uint64_t currentProcessId() noexcept
+{
+    return sub0log_platform_process_id();
+}
+
+[[nodiscard]] inline std::uint64_t currentThreadId() noexcept
+{
+    return sub0log_platform_thread_id();
+}
+
+#elif defined(_WIN32)
 
 [[nodiscard]] inline std::uint64_t monotonicNowNs() noexcept
 {
