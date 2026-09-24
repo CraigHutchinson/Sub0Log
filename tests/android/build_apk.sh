@@ -26,6 +26,10 @@ build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
 platform=$(ls -d "$ANDROID_HOME"/platforms/android-* | sort -V | tail -1)
 echo "ndk: $ndk"; echo "build-tools: $build_tools"; echo "platform: $platform"
 
+# Fail in a second, not after four native builds, on a malformed manifest.
+python3 -c "import sys, xml.dom.minidom; xml.dom.minidom.parse(sys.argv[1])" \
+    "$root/tests/android/AndroidManifest.xml"
+
 nm_tool=$(ls "$ndk"/toolchains/llvm/prebuilt/*/bin/llvm-nm | head -1)
 rm -rf "$out/stage"
 for abi in $abis; do

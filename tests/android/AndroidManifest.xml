@@ -8,9 +8,10 @@
                  android:hasCode="false"
                  android:extractNativeLibs="true">
         <!-- singleTask: relaunching brings this instance back (resume) rather
-             than stacking a second NativeActivity -- and a second android_main
-             -- in the same process, which is what the default launch mode
-             does for an explicit `am start -n`. -->
+             than stacking a second NativeActivity, and with it a second
+             android_main, in the same process, which is what the default
+             launch mode does for an explicit am start -n. (No double hyphens
+             anywhere in XML comments: they are not well-formed.) -->
         <activity android:name="android.app.NativeActivity"
                   android:exported="true"
                   android:launchMode="singleTask"
