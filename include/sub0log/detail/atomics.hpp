@@ -51,13 +51,73 @@
 
 namespace sub0log::detail {
 
+/** std::atomic_ref where the standard library has it, and the same
+ *  operations over the GCC/Clang `__atomic` builtins where it does not.
+ *
+ *  libc++ gained atomic_ref only in LLVM 19, so every libc++ 18 toolchain
+ *  -- the Android NDK through r27 among them -- has no std::atomic_ref at
+ *  all, and this library could not build there. The builtins are what
+ *  atomic_ref is implemented with on those compilers, so the fallback is
+ *  the same instructions, not an approximation. Only the members the
+ *  library uses are provided.
+ */
+#if defined(__cpp_lib_atomic_ref) && __cpp_lib_atomic_ref >= 201806L
+template <typename T>
+using AtomicRef = std::atomic_ref<T>;
+#elif defined(__GNUC__) || defined(__clang__)
+[[nodiscard]] constexpr int builtinOrder(const std::memory_order order) noexcept
+{
+    switch (order) {
+    case std::memory_order_relaxed: return __ATOMIC_RELAXED;
+    case std::memory_order_consume: return __ATOMIC_CONSUME;
+    case std::memory_order_acquire: return __ATOMIC_ACQUIRE;
+    case std::memory_order_release: return __ATOMIC_RELEASE;
+    case std::memory_order_acq_rel: return __ATOMIC_ACQ_REL;
+    default: return __ATOMIC_SEQ_CST;
+    }
+}
+
+template <typename T>
+class AtomicRef {
+public:
+    static constexpr bool is_always_lock_free = __atomic_always_lock_free(sizeof(T), 0);
+    static constexpr std::size_t required_alignment = alignof(T) > sizeof(T) ? alignof(T) : sizeof(T);
+
+    explicit AtomicRef(T& object) noexcept : object_{&object} {}
+
+    [[nodiscard]] T load(const std::memory_order order = std::memory_order_seq_cst) const noexcept
+    {
+        return __atomic_load_n(object_, builtinOrder(order));
+    }
+    void store(const T value, const std::memory_order order = std::memory_order_seq_cst) const noexcept
+    {
+        __atomic_store_n(object_, value, builtinOrder(order));
+    }
+    T fetch_add(const T value, const std::memory_order order = std::memory_order_seq_cst) const noexcept
+    {
+        return __atomic_fetch_add(object_, value, builtinOrder(order));
+    }
+    bool compare_exchange_weak(T& expected, const T desired, const std::memory_order success,
+                               const std::memory_order failure) const noexcept
+    {
+        return __atomic_compare_exchange_n(object_, &expected, desired, true,
+                                           builtinOrder(success), builtinOrder(failure));
+    }
+
+private:
+    T* object_;
+};
+#else
+#  error "Sub0Log needs std::atomic_ref or the GCC/Clang __atomic builtins"
+#endif
+
 #if defined(SUB0LOG_SPLIT_ATOMICS) && SUB0LOG_SPLIT_ATOMICS
 inline constexpr bool cSplitAtomics = true;
 #else
-inline constexpr bool cSplitAtomics = !std::atomic_ref<std::uint64_t>::is_always_lock_free;
+inline constexpr bool cSplitAtomics = !AtomicRef<std::uint64_t>::is_always_lock_free;
 #endif
 
-static_assert(std::atomic_ref<std::uint32_t>::is_always_lock_free,
+static_assert(AtomicRef<std::uint32_t>::is_always_lock_free,
               "Sub0Log needs lock-free 32-bit atomics (R1.3: no lock on the producer "
               "path). A core without them -- ARMv6-M, Cortex-M0/M0+ -- has no "
               "lock-free read-modify-write at all; docs/embedded.md has the options.");
@@ -101,12 +161,12 @@ inline void storeHeadWord(std::byte* const slot, const std::uint64_t word) noexc
         // Length/kind/flags first, relaxed -- nobody acts on them until the
         // tag is visible -- then the half holding the tag, release, which
         // orders both the payload and the low half before it.
-        std::atomic_ref<std::uint32_t>{*startUint32LifetimeAt(slot)}.store(
+        AtomicRef<std::uint32_t>{*startUint32LifetimeAt(slot)}.store(
             static_cast<std::uint32_t>(word), std::memory_order_relaxed);
-        std::atomic_ref<std::uint32_t>{*startUint32LifetimeAt(slot + 4)}.store(
+        AtomicRef<std::uint32_t>{*startUint32LifetimeAt(slot + 4)}.store(
             static_cast<std::uint32_t>(word >> 32u), std::memory_order_release);
     } else {
-        std::atomic_ref<std::uint64_t>{*wire::startUint64LifetimeAt(slot)}.store(
+        AtomicRef<std::uint64_t>{*wire::startUint64LifetimeAt(slot)}.store(
             word, std::memory_order_release);
     }
 }
@@ -145,7 +205,7 @@ template <bool Split = cSplitAtomics>
     if constexpr (Split) {
         // The low half, bounded: stop at chunkCount instead of counting
         // past it, so the high half is never touched and stays zero.
-        std::atomic_ref<std::uint32_t> low{*startUint32LifetimeAt(cursor)};
+        AtomicRef<std::uint32_t> low{*startUint32LifetimeAt(cursor)};
         std::uint32_t index = low.load(std::memory_order_relaxed);
         while (index < chunkCount) {
             if (low.compare_exchange_weak(index, index + 1u, std::memory_order_relaxed,
@@ -157,7 +217,7 @@ template <bool Split = cSplitAtomics>
     } else {
         // Wait-free where the core has it: one fetch_add, which keeps
         // counting refused claims past the end (claimedChunks() clamps).
-        std::atomic_ref<std::uint64_t> word{*wire::startUint64LifetimeAt(cursor)};
+        AtomicRef<std::uint64_t> word{*wire::startUint64LifetimeAt(cursor)};
         const std::uint64_t index = word.fetch_add(1u, std::memory_order_relaxed);
         return index < chunkCount ? static_cast<std::uint32_t>(index) : chunkCount;
     }
@@ -170,10 +230,10 @@ template <bool Split = cSplitAtomics>
 {
     std::uint64_t claimed = 0;
     if constexpr (Split) {
-        claimed = std::atomic_ref<std::uint32_t>{*startUint32LifetimeAt(cursor)}.load(
+        claimed = AtomicRef<std::uint32_t>{*startUint32LifetimeAt(cursor)}.load(
             std::memory_order_relaxed);
     } else {
-        claimed = std::atomic_ref<std::uint64_t>{*wire::startUint64LifetimeAt(cursor)}.load(
+        claimed = AtomicRef<std::uint64_t>{*wire::startUint64LifetimeAt(cursor)}.load(
             std::memory_order_relaxed);
     }
     return claimed < chunkCount ? static_cast<std::uint32_t>(claimed) : chunkCount;

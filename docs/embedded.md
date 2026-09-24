@@ -85,7 +85,7 @@ against a buffer sized to run dry (below).
 | no-exceptions, no-RTTI build of the embedded producer | **met** on GCC/Clang | `Sub0LogEmbeddedProducer` and `Sub0LogFreestandingProbe` are built `-fno-exceptions -fno-rtti`; MSVC builds with `/GR-` only (MSVC's STL does not support `_HAS_EXCEPTIONS=0`) |
 | code size and RAM measured, not estimated | **met** for 32-bit ARM Cortex-A and for Cortex-M3/M4/M7/M33 | numbers below and in "Cortex-M"; CI's `embedded-arm` and `embedded-cortex-m` jobs rebuild and print them |
 | embedded-produced segment decodes with the desktop tooling | **met** | `embedded::decode` runs `sub0log-cat` on the buffer `embedded::producer` dumped |
-| Android pause/resume/termination established by a test | **not done** | needs an NDK toolchain and an emulator in CI; see "Still open" |
+| Android pause/resume/termination established by a test | **met** | CI `android-lifecycle`: a NativeActivity on an API 34 emulator through launch, pause, resume and `am force-stop` (SIGKILL), twice; "Android" below has what it establishes |
 
 Also covered: a previous run's records in the buffer do not reappear
 (`memory_segment.test.cpp`, confirmed to fail with the zeroing removed);
@@ -398,6 +398,64 @@ the default 64 KiB chunk and the ~40-byte records above, that is once per
 Cortex-M there is no 64-bit path to compare against; the split protocol
 is the only lock-free one there is.
 
+## Android
+
+`tests/android/` is an NDK consumer: a NativeActivity with no Java code
+(`lifecycle.cpp`), built into an APK with the SDK and NDK command-line tools
+alone (`build_apk.sh`). CI's `android-lifecycle` job runs it on an x86_64
+API 34 emulator. The app logs the same records to two backends at once:
+
+- a **file segment** in app-private storage (`internalDataPath`);
+- an **in-memory segment**, written out whole on every pause. This is the
+  hand-off recipe, because a paused app can be killed without another
+  callback.
+
+`run_lifecycle.sh` takes it through launch, HOME (pause and stop), relaunch
+(resume), then `am force-stop` (SIGKILL, what the system does to a
+background app under memory pressure), and repeats with a second process.
+It then pulls the app's files with `run-as` and decodes them with the desktop
+`sub0log-cat`. `check_lifecycle.sh` establishes:
+
+| behaviour | established |
+|---|---|
+| pause and resume | nothing happens to either backend: the process, its mapping and its buffer carry on. The callbacks are ordinary records in both |
+| termination | **no callback at all**: neither `APP_CMD_DESTROY` nor the loop exit is ever recorded. Anything that depends on a shutdown hook never runs |
+| file segment across SIGKILL | decodes with nothing undecodable, and holds records right up to the kill, beyond the last pause. This is R3.1 holding on Android: the mapping belongs to the kernel |
+| in-memory segment across SIGKILL | keeps only what the last pause handed off. Everything written after it existed only in process memory and died with the process |
+| a new process after the kill | writes its own new segment, as R5.1 says, and both runs decode together |
+
+The same checker was first run on the host, against the real
+`lifecycle.cpp` with Android's looper stubbed to replay the lifecycle and
+SIGKILL itself, before being pointed at the emulator.
+
+Building for Android also exposed a hard blocker: **libc++ 18, which the
+NDK ships through r27, has no `std::atomic_ref`**. The library failed to
+build against it with 440 errors. `detail::AtomicRef` now falls back to the
+`__atomic` builtins, which are what `atomic_ref` compiles to, and CI's
+`linux-clang-libcxx` job runs the whole suite on libc++ 18.
+
+## Rotation and hand-off
+
+`examples/13_rotation.cpp` is the recipe for a long-running session:
+
+1. Watch `Logger::usage()`.
+2. Rotate one chunk before the segment fills, or on a lifecycle event such
+   as a pause.
+3. Hand the finished segment to an outbox, which is where an uploader or a
+   pull takes it from.
+4. Keep the newest N.
+5. Merge everything kept back into one stream.
+
+It runs as an example ctest: 21 rotations, 3000 events, every one
+recovered exactly once and none dropped. A second run keeping only 3 bounds
+the outbox to 3.
+
+Its limit is stated in the example. `ScopedBind` is scoped, so a swap is
+"unbind, bind next". On the single producer thread, which is what firmware
+main loops and app loops are, nothing can land in between. With several
+producer threads, an emit in that gap is counted by `unboundEmits()`, and
+the retired Logger must outlive every producer's next emit (item 7).
+
 ## Still open
 
 **1. Cores the split protocol does not reach.** ARMv6-M (Cortex-M0/M0+)
@@ -425,18 +483,9 @@ register per task and lays out a `.tbss` block for each (Zephyr does, with
 `CONFIG_THREAD_LOCAL_STORAGE`). Where that is not available, this needs a
 single-writer mode with the cache as a plain `Logger` member.
 
-**4. Android.** An NDK consumer test using app-private storage, and a test
-that establishes -- rather than assumes -- what survives pause, resume and
-termination. The file-segment path is POSIX and should need nothing new on
-Android; what needs establishing is the process lifecycle (a backgrounded
-app killed by the low-memory killer is a hard kill, which R3.1 covers for a
-file segment and does not for an in-memory one). It needs an NDK toolchain
-and an emulator job in CI, which this change does not add.
+**4. (Done: "Android" above.)**
 
-**5. A bounded-segment rotation/handoff recipe** for long-running sessions.
-`vnext-segment-rollover.md` is the design; until it is built, the recipe is
-"a new `Logger` per interval, merged at read time", which `README.md`'s
-"Operating it" already describes.
+**5. (Done: `examples/13_rotation.cpp`, "Rotation and hand-off" above.)**
 
 **6. Keeping logging off ISR-equivalent paths.** Nothing here makes an emit
 interrupt-safe: an interrupt that preempts a thread mid-record on the same

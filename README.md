@@ -285,7 +285,9 @@ libraries go to acquire configuration surfaces, and `REQUIREMENTS.md` puts
 it out of scope on purpose. The intended pattern is a new segment per run,
 or per interval, with `Merger` putting them back into one ordered stream at
 read time. Set `segmentBytes_` for the rate you expect, and alert on the
-drop counter rather than on the file.
+drop counter rather than on the file. `examples/13_rotation.cpp` is that
+pattern for a long-running session: rotate on `Logger::usage()` or on a
+lifecycle event, hand the finished segment off, keep the newest N.
 
 **Watch two counters and one number.** `Logger::stats()` gives dropped and
 truncated records; `sub0log::unboundEmits()` gives call sites that reached no

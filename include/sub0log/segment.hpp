@@ -305,8 +305,8 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     // head word after it is too: an under-aligned base makes the whole
     // commit protocol undefined, not merely slow.
     constexpr std::size_t cAlign =
-        std::atomic_ref<std::uint64_t>::required_alignment > wire::cRecordAlign
-            ? std::atomic_ref<std::uint64_t>::required_alignment
+        detail::AtomicRef<std::uint64_t>::required_alignment > wire::cRecordAlign
+            ? detail::AtomicRef<std::uint64_t>::required_alignment
             : wire::cRecordAlign;
     if (storage.data() == nullptr
         || reinterpret_cast<std::uintptr_t>(storage.data()) % cAlign != 0u) {
