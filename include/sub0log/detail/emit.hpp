@@ -580,13 +580,13 @@ void emitRecord(const SiteDescriptor& site, const Args&... args) noexcept
     // Strict self-description is per *segment*: every segment must carry the
     // definitions for the sites it contains, or its records cannot be
     // decoded on their own (R4.3, and docs/record-model.md). Comparing the
-    // site's last-announced generation against this segment's is what makes
+    // site's last-announced segment key against this segment's is what makes
     // that true when a process outlives a Logger.
-    const std::uint64_t generation = logger->segmentGeneration();
-    if (site.announcedGeneration_.load(std::memory_order_relaxed) != generation) {
+    const AnnounceWord announceKey = logger->segmentAnnounceKey();
+    if (site.announcedKey_.load(std::memory_order_relaxed) != announceKey) {
         if (!writeSiteDefinition<Args...>(*logger, site)) {
             // The definition did not make it, so this segment still does not
-            // know the site. Leaving the generation unrecorded means the next
+            // know the site. Leaving the key unrecorded means the next
             // emit tries again; recording it would strand every later Message
             // for this site as undecodable.
             //
@@ -597,7 +597,7 @@ void emitRecord(const SiteDescriptor& site, const Args&... args) noexcept
             // that ledger lie in the direction that looks safe.
             return;
         }
-        site.announcedGeneration_.store(generation, std::memory_order_relaxed);
+        site.announcedKey_.store(announceKey, std::memory_order_relaxed);
     }
 
     if constexpr (cHasByteArg<Args...>) {

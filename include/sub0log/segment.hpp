@@ -102,6 +102,20 @@ public:
     [[nodiscard]] const std::string& path() const noexcept { return path_; }
     [[nodiscard]] std::uint64_t generation() const noexcept { return generation_; }
 
+    /// What a call site records to remember it has been defined in *this*
+    /// segment (SiteDescriptor::announcedKey_); never 0. The generation
+    /// where 64-bit atomics are lock-free; on the split path a u32 from a
+    /// per-process counter, unique for 2^32 - 1 segment creations
+    /// (detail::AnnounceWord says why the two differ).
+    [[nodiscard]] detail::AnnounceWord announceKey() const noexcept
+    {
+        if constexpr (detail::cSplitAtomics) {
+            return announceKey_;
+        } else {
+            return generation_;
+        }
+    }
+
     /// Claims the next free chunk, stamps its header, returns a writer over
     /// its body. Invalid writer when the segment is full.
     [[nodiscard]] ChunkWriter claimChunk() noexcept;
@@ -132,6 +146,8 @@ private:
     PlatformError geometryError_{};
     std::string path_{};
     std::uint64_t generation_{0};
+    /// The split path's announce key; unused where the generation is the key.
+    std::uint32_t announceKey_{0};
     /// Where chunk 0 starts: wire::cSegmentHeaderBytes for a file,
     /// wire::cCompactSegmentHeaderBytes in memory. Written into the header,
     /// which is where a reader takes it from.
@@ -155,6 +171,7 @@ inline Segment::Segment(Segment&& other) noexcept
       geometryError_{other.geometryError_},
       path_{std::move(other.path_)},
       generation_{other.generation_},
+      announceKey_{other.announceKey_},
       headerBytes_{other.headerBytes_},
       chunkBytes_{other.chunkBytes_},
       chunkCount_{other.chunkCount_},
@@ -170,6 +187,7 @@ inline Segment& Segment::operator=(Segment&& other) noexcept
         geometryError_ = other.geometryError_;
         path_ = std::move(other.path_);
         generation_ = other.generation_;
+        announceKey_ = other.announceKey_;
         headerBytes_ = other.headerBytes_;
         chunkBytes_ = other.chunkBytes_;
         chunkCount_ = other.chunkCount_;
@@ -240,6 +258,16 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     bytes_ = bytes;
     generation_ = generation;
     headerBytes_ = headerBytes;
+    if constexpr (detail::cSplitAtomics) {
+        // Control-thread work, once per segment. 0 is what an unannounced
+        // site holds, so a wrap skips it.
+        static constinit std::atomic<std::uint32_t> sNextAnnounceKey{1};
+        std::uint32_t key = sNextAnnounceKey.fetch_add(1u, std::memory_order_relaxed);
+        if (key == 0u) {
+            key = sNextAnnounceKey.fetch_add(1u, std::memory_order_relaxed);
+        }
+        announceKey_ = key;
+    }
     chunkBytes_ = chunkBytes;
     chunkCount_ = segmentBytes > headerBytes
                       ? static_cast<std::uint32_t>((segmentBytes - headerBytes) / chunkBytes)
@@ -339,12 +367,9 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     if (!valid()) {
         return 0u;
     }
-    const std::atomic_ref<std::uint64_t> cursor{
-        *wire::startUint64LifetimeAt(bytes_.data() + wire::cNextChunkOffset)};
-    const std::uint64_t claimed = cursor.load(std::memory_order_relaxed);
-    // The cursor keeps counting refused claims past the end (claimChunk()
-    // fetch_adds before it checks), so it is clamped rather than reported.
-    return claimed < chunkCount_ ? static_cast<std::uint32_t>(claimed) : chunkCount_;
+    // Clamped: on 64-bit-atomic cores the cursor keeps counting refused
+    // claims past the end (detail::claimChunkIndex).
+    return detail::loadClaimedChunks(bytes_.data() + wire::cNextChunkOffset, chunkCount_);
 }
 
 [[nodiscard]] inline ChunkWriter Segment::claimChunk() noexcept
@@ -355,12 +380,10 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
 
     std::byte* const base = bytes_.data();
     // The only cross-thread synchronisation on the producer path (R1.3):
-    // one fetch_add(relaxed) on the in-mapping cursor. startUint64LifetimeAt
-    // (wire.hpp) is what makes forming this reference well-defined rather
-    // than merely working.
-    std::atomic_ref<std::uint64_t> cursor{
-        *wire::startUint64LifetimeAt(base + wire::cNextChunkOffset)};
-    const std::uint64_t index = cursor.fetch_add(1u, std::memory_order_relaxed);
+    // one relaxed claim on the in-segment cursor -- a fetch_add, or a
+    // bounded 32-bit compare-exchange on a core without 64-bit atomics
+    // (detail/atomics.hpp).
+    const std::uint32_t index = detail::claimChunkIndex(base + wire::cNextChunkOffset, chunkCount_);
     if (index >= chunkCount_) {
         return ChunkWriter{}; // exhausted; caller counts a drop (R9.1).
     }

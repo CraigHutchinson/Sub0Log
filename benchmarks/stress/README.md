@@ -45,7 +45,7 @@ Windows arm is v2 per `docs/architecture.md`).
 
 ## A subtlety every multi-Logger scenario used to work around
 
-`SiteDescriptor::announcedGeneration_` (`include/sub0log/site.hpp`) is the
+`SiteDescriptor::announcedKey_` (`include/sub0log/site.hpp`) is the
 segment generation a site's SiteDefinition was last written into, keyed per
 generation rather than a one-shot process-wide flag -- so a call site reused
 across independently-built segments gets its own definition written into
@@ -62,7 +62,7 @@ for the history.
 
 `saturate`, `oversubscribe` and `live_tail` hit a narrower version of the
 same seam even with the fix: several producer threads can race the
-`announcedGeneration_ != generation` check on their very first call. If the
+`announcedKey_ != announceKey` check on their very first call. If the
 loser of that race also happens to run out of segment room, it pays a
 second, spurious drop for a definition nobody needed after the winner's
 succeeded -- an artifact of the race this harness would introduce, not a

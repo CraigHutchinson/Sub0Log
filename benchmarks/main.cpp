@@ -32,13 +32,14 @@ struct GroupEntry {
 
 // One entry per KPI group; --list enumerates exactly this table, and a
 // positional argument is checked against it by name.
-constexpr std::array<GroupEntry, 6> cGroups{{
+constexpr std::array<GroupEntry, 7> cGroups{{
     {"emit", sub0log::bench::runEmitGroup},
     {"claim", sub0log::bench::runClaimGroup},
     {"throughput", sub0log::bench::runThroughputGroup},
     {"decode", sub0log::bench::runDecodeGroup},
     {"merge", sub0log::bench::runMergeGroup},
     {"format", sub0log::bench::runFormatGroup},
+    {"atomics", sub0log::bench::runAtomicsGroup},
 }};
 
 void printUsage()

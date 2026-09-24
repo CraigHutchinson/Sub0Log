@@ -48,7 +48,10 @@ inline constexpr std::uint64_t cUnboundEmitCap = 1024u;
 namespace detail {
 
 /// Counts emit attempts that found no bound instance. See unboundEmits().
-inline std::atomic<std::uint64_t> sUnboundEmits{0};
+/// A RelaxedCounter, so it stays lock-free on a core without 64-bit
+/// atomics (detail/atomics.hpp); it never approaches 2^32 anyway, being
+/// capped at cUnboundEmitCap.
+inline RelaxedCounter sUnboundEmits{};
 
 /** Counts one unbound emit and answers enabled()'s check for it. Always
  *  false: there is nothing to emit into, which is the whole point.
@@ -83,8 +86,8 @@ inline std::atomic<std::uint64_t> sUnboundEmits{0};
     // every increment invalidates the line in every other core. Loading a
     // line nobody writes any more costs a fraction of that and scales, and
     // by then the count has already said what it had to say.
-    if (sUnboundEmits.load(std::memory_order_relaxed) < cUnboundEmitCap) {
-        sUnboundEmits.fetch_add(1u, std::memory_order_relaxed);
+    if (sUnboundEmits.load() < cUnboundEmitCap) {
+        sUnboundEmits.increment();
     }
     return false;
 }
@@ -128,7 +131,7 @@ inline std::atomic<std::uint64_t> sUnboundEmits{0};
  */
 [[nodiscard]] inline std::uint64_t unboundEmits() noexcept
 {
-    return detail::sUnboundEmits.load(std::memory_order_relaxed);
+    return detail::sUnboundEmits.load();
 }
 
 /** Owns one segment and the producer-side state. No latched global anywhere:
@@ -372,12 +375,20 @@ public:
     void countTruncation() noexcept;
     [[nodiscard]] Stats stats() const noexcept;
 
-    /// The generation stamped on this instance's segment. The emit path
-    /// compares a site's last-announced generation against this to decide
-    /// whether this segment has been told what the site means.
+    /// The generation stamped on this instance's segment (R3.4). The C ABI's
+    /// site table keys plugin sites on it; C++ call sites use
+    /// segmentAnnounceKey() below, which is this same value wherever 64-bit
+    /// atomics are lock-free.
     [[nodiscard]] std::uint64_t segmentGeneration() const noexcept
     {
         return segment_.generation();
+    }
+
+    /// What the emit path compares a site's announcedKey_ against
+    /// (Segment::announceKey(), detail::AnnounceWord).
+    [[nodiscard]] detail::AnnounceWord segmentAnnounceKey() const noexcept
+    {
+        return segment_.announceKey();
     }
 
     /// A reference into this Logger's own segment path, not an owned copy:
@@ -458,8 +469,10 @@ private:
     std::uint64_t rootCorrelation_{0};
     std::atomic<Severity> threshold_{Severity::Trace};
     std::array<std::atomic<Severity>, cSubsystemLevels> subsystemThreshold_{};
-    std::atomic<std::uint64_t> dropped_{0};
-    std::atomic<std::uint64_t> truncated_{0};
+    // Relaxed counters in the widest lock-free word: u64, or u32 wrapping at
+    // 2^32 on a core without 64-bit atomics (detail/atomics.hpp).
+    detail::RelaxedCounter dropped_{};
+    detail::RelaxedCounter truncated_{};
 };
 
 // ---------------------------------------------------------------------------
@@ -608,8 +621,8 @@ inline Logger::Logger(Logger&& other) noexcept
     : segment_{std::move(other.segment_)},
       rootCorrelation_{other.rootCorrelation_},
       threshold_{other.threshold_.load(std::memory_order_relaxed)},
-      dropped_{other.dropped_.load(std::memory_order_relaxed)},
-      truncated_{other.truncated_.load(std::memory_order_relaxed)}
+      dropped_{static_cast<detail::RelaxedCounter::Word>(other.dropped_.load())},
+      truncated_{static_cast<detail::RelaxedCounter::Word>(other.truncated_.load())}
 {
     // std::atomic is neither copyable nor movable, so the table is carried
     // across element by element. Relaxed throughout: a Logger being moved
@@ -646,18 +659,17 @@ inline Logger::~Logger() = default;
 
 inline void Logger::countDrop() noexcept
 {
-    dropped_.fetch_add(1u, std::memory_order_relaxed);
+    dropped_.increment();
 }
 
 inline void Logger::countTruncation() noexcept
 {
-    truncated_.fetch_add(1u, std::memory_order_relaxed);
+    truncated_.increment();
 }
 
 [[nodiscard]] inline Logger::Stats Logger::stats() const noexcept
 {
-    return Stats{dropped_.load(std::memory_order_relaxed),
-                truncated_.load(std::memory_order_relaxed)};
+    return Stats{dropped_.load(), truncated_.load()};
 }
 
 inline void Logger::declareSubsystem(const SubsystemId subsystem, const std::string_view name) noexcept

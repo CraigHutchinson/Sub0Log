@@ -4,6 +4,7 @@
  *  @brief One thread's bump-allocating writer over one claimed chunk.
  */
 
+#include "detail/atomics.hpp"
 #include "wire.hpp"
 
 #include <atomic>
@@ -14,17 +15,12 @@
 namespace sub0log::detail {
 
 // R1.3 promises the producer takes no lock. The commit store and the chunk
-// claim are both 64-bit atomics, and a 64-bit atomic is only lock-free where
-// the core has a 64-bit read-modify-write: on a 32-bit target without one
-// (Cortex-M, older ARM), the standard library silently substitutes a lock
-// table, so the guarantee would quietly become false rather than fail. This
-// makes that a build error naming the reason instead.
-static_assert(std::atomic_ref<std::uint64_t>::is_always_lock_free,
-              "Sub0Log needs lock-free 64-bit atomics: the commit head word "
-              "and the chunk-claim cursor are both u64, and R1.3 promises no "
-              "lock on the producer path. On a target without a 64-bit RMW "
-              "the standard library would fall back to a lock table and the "
-              "promise would silently stop holding.");
+// claim are both u64 words in the format, and a 64-bit atomic is only
+// lock-free where the core has a 64-bit read-modify-write; on a 32-bit core
+// without one (every Cortex-M) the standard library would silently
+// substitute a lock table. detail/atomics.hpp does both with 32-bit atomics
+// there instead, writing identical bytes, and refuses to build only where
+// even 32-bit atomics are not lock-free.
 
 /** Owned by exactly one thread after the claim, so nothing here synchronises
  *  except the commit store (R1.3).
@@ -131,14 +127,12 @@ inline void ChunkWriter::commit(const Reservation& slot, wire::RecordHead head) 
     head.sequence_ = slot.sequence_;
     // The head-word slot is 8-byte aligned by construction (reserve() only
     // hands out slots at 8-aligned offsets within an 8-aligned chunk body).
-    // atomic_ref over that uint64_t-sized, uint64_t-aligned storage is the
-    // producer's one piece of cross-thread synchronisation with the reader
-    // (R1.3): release here, acquire on the read side. startUint64LifetimeAt
-    // (wire.hpp) is what makes forming this reference well-defined rather
-    // than merely working.
-    std::atomic_ref<std::uint64_t> headRef{
-        *wire::startUint64LifetimeAt(slot.headWord_)};
-    headRef.store(head.pack(), std::memory_order_release);
+    // This store is the producer's one piece of cross-thread
+    // synchronisation with the reader (R1.3): release here, acquire on the
+    // read side (detail::loadHeadWord). One 64-bit store, or two 32-bit
+    // ones tag-last on a core without 64-bit atomics -- the same bytes
+    // either way (detail/atomics.hpp).
+    detail::storeHeadWord(slot.headWord_, head.pack());
 }
 
 } // namespace sub0log::detail
