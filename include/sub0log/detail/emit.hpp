@@ -267,6 +267,7 @@ struct ContinuationSlot {
 ///
 /// Nothing is committed here -- see emitChained for why (commit order, not
 /// reserve order, is what a reader may observe).
+// `contSlots`, never `slots`: Qt #defines that to nothing (see emitRecord).
 template <std::size_t MaxSlots>
 [[nodiscard]] inline bool reserveChain(ChunkWriter& writer, const std::uint32_t messagePayloadBytes,
                                        std::span<const ArgOverflow> overflows,
@@ -565,8 +566,8 @@ void emitChained(Logger& logger, const SiteDescriptor& site, const Args&... args
  *  included before this one -- the preprocessor then deletes this
  *  function's name from the token stream regardless of namespace
  *  qualification, and the call site in log.hpp's SUB0LOG_EMIT macro goes
- *  with it. See docs/upstream/ (Sub0Log issue #1) and the Qt consumer test
- *  under tests/packaging/qt_consumer for both include orders compiling.
+ *  with it. Sub0Log issue #1; tests/qt_keywords builds and round-trips
+ *  both include orders, against real Qt and against a Qt-less shim.
  */
 template <Encodable... Args>
 void emitRecord(const SiteDescriptor& site, const Args&... args) noexcept

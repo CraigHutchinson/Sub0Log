@@ -111,6 +111,11 @@ if(TARGET Sub0LogAbiTestPlugin)
     endif()
 endif()
 
+# Qt keyword-macro compatibility (issue #1): consumer-shaped executables,
+# not doctest cases, because the whole point is what a Qt-style translation
+# unit sees -- see tests/qt_keywords/CMakeLists.txt.
+add_subdirectory(qt_keywords)
+
 # Not a fourth doctest category (sub0log_add_test_category): it doesn't
 # exercise wire.hpp/encode.hpp against the in-tree target at all, it proves
 # an out-of-tree find_package(Sub0Log) works against an installed one.

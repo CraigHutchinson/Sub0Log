@@ -66,6 +66,16 @@ Either way, C++23 and (on MSVC) the conformant preprocessor
 arrive as usage requirements on `Sub0Log::Sub0Log` -- nothing extra to set in
 your own `CMakeLists.txt`.
 
+**Qt projects** need nothing extra either, and include order does not
+matter. Qt `#define`s `emit` and `slots` to nothing (unless you set
+`QT_NO_KEYWORDS`), which deletes any C++ identifier with those names -- so
+no Sub0Log header or call-site macro uses one (the C ABI's function pointer
+is `emit_record` for the same reason). `QT_NO_KEYWORDS` is fine to use and
+not required. `tests/qt_keywords` holds that line: every public header plus
+a real write-and-decode round trip, with Qt's keywords defined before and
+after Sub0Log, against real Qt 6 and against a Qt-less shim of its macros
+so every CI configuration checks it.
+
 ## How it works
 
 A call site expands to writing raw argument bytes into a chunk of a
