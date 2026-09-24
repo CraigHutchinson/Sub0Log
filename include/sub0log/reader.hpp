@@ -106,6 +106,22 @@ public:
      *  first did, makes the number useless for the question R3.3 asks:
      *  a fresh 8 MiB segment holding four records reported 8.3 million
      *  "unreadable" bytes, which reads as catastrophe and means nothing.
+     *
+     *  Bounded by the segment's own *declared* body size
+     *  (`header().segmentBytes_ - header().headerBytes_`), not by however
+     *  many bytes were physically handed to open(). SegmentHeader::
+     *  segmentBytes_ is never checked against the image size the way
+     *  headerBytes_ is (visit()'s truncated-tail branch says why: counting
+     *  a corrupted, oversized segmentBytes_'s whole remainder in one
+     *  arithmetic step, rather than walking chunk by chunk, is what keeps
+     *  an untrusted value from becoming an unbounded loop), so a segment
+     *  that legitimately claims to be far larger than the file actually
+     *  handed to this reader -- the ordinary truncated-tail case R3.3 is
+     *  for, taken to an extreme -- reports a correspondingly large number
+     *  here. That is correct, not a bug: proven by exhaustive single-byte
+     *  corruption in `tests/integration/reader.test.cpp`, which asserted
+     *  the tighter (and wrong) bound against the physical image first and
+     *  had to be corrected once that assumption failed.
      */
     [[nodiscard]] std::uint64_t unreadableBytes() const noexcept
     {
@@ -401,6 +417,34 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
 
         const std::byte* const chunkPtr = image_.data() + chunkStart;
         const wire::ChunkHeader chunkHead = wire::loadUnaligned<wire::ChunkHeader>(chunkPtr);
+
+        // Verified before anything below reads generation_, and deliberately
+        // not folded into the generation-mismatch branch further down:
+        // corruption could just as easily zero generation_ on a real,
+        // previously-claimed chunk, and the generation_==0 branch immediately
+        // below exists to mean "never claimed", not "damaged". Checking the
+        // checksum first is what keeps those two cases from being conflated
+        // (docs/vnext-header-checksum.md). headerChecksum_ == 0 means "not
+        // present" -- a never-claimed chunk's all-zero header, or one stamped
+        // before this field existed -- and is not itself evidence of
+        // anything; every other stored value must match what the header's
+        // own fields recompute to.
+        if (chunkHead.headerChecksum_ != 0u &&
+            chunkHead.headerChecksum_ != wire::computeChunkHeaderChecksum(
+                chunkHead.generation_, chunkHead.ownerThread_, chunkHead.claimMonoNs_,
+                chunkHead.chunkSizeClass_)) {
+            // The header's own bytes disagree with their own checksum:
+            // corruption, not legitimate data of any generation and not
+            // absence either. Nothing in this header -- generation_
+            // included -- is trustworthy evidence once this fails, so it is
+            // handled exactly like every other header-level fault below:
+            // count it, stride by this segment's own uniform geometry, move
+            // on.
+            unreadableBytes_ += (fallbackAvailable - sizeof(wire::ChunkHeader)) + fallbackMissingTail;
+            chunkStart = fallbackNominalEnd;
+            ++chunkIndex;
+            continue;
+        }
 
         if (chunkHead.generation_ == 0u) {
             // Never claimed: a segment is created at full size, so this is

@@ -305,8 +305,8 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     // head word after it is too: an under-aligned base makes the whole
     // commit protocol undefined, not merely slow.
     constexpr std::size_t cAlign =
-        std::atomic_ref<std::uint64_t>::required_alignment > wire::cRecordAlign
-            ? std::atomic_ref<std::uint64_t>::required_alignment
+        detail::AtomicRef<std::uint64_t>::required_alignment > wire::cRecordAlign
+            ? detail::AtomicRef<std::uint64_t>::required_alignment
             : wire::cRecordAlign;
     if (storage.data() == nullptr
         || reinterpret_cast<std::uintptr_t>(storage.data()) % cAlign != 0u) {
@@ -407,12 +407,26 @@ inline void Segment::initialise(const std::span<std::byte> bytes, const std::uin
     // chunkBytes_ was not exactly representable): stamped verbatim here
     // rather than recomputed, since claimChunk() is the path R1.3 asks to
     // stay off any per-record cost, let alone a per-chunk lookup loop.
-    const wire::ChunkHeader chunkHeader{
-        generation_,
-        currentThreadId(),
-        monotonicNowNs(),
-        sizeClass_,
-    };
+    //
+    // Field-by-field assignment, not aggregate-init positional braces:
+    // ChunkHeader gained a field (headerChecksum_) between claimMonoNs_ and
+    // chunkSizeClass_ after this call site already existed positionally,
+    // which would have silently fed sizeClass_ into the new field instead
+    // of chunkSizeClass_ had this stayed `{a, b, c, d}` -- named assignment
+    // survives the next field the struct gains the same way this one did.
+    wire::ChunkHeader chunkHeader{};
+    chunkHeader.generation_ = generation_;
+    chunkHeader.ownerThread_ = currentThreadId();
+    chunkHeader.claimMonoNs_ = monotonicNowNs();
+    chunkHeader.chunkSizeClass_ = sizeClass_;
+    // The checksum is computed last and covers the fields above as they
+    // were just assigned, one call to computeChunkHeaderChecksum()
+    // (docs/vnext-header-checksum.md) rather than four inline crc32() calls
+    // here -- the split between those fields and headerChecksum_ itself
+    // belongs to that one function, not repeated at every call site.
+    chunkHeader.headerChecksum_ = wire::computeChunkHeaderChecksum(
+        chunkHeader.generation_, chunkHeader.ownerThread_,
+        chunkHeader.claimMonoNs_, chunkHeader.chunkSizeClass_);
     wire::storeUnaligned(chunkBase, chunkHeader);
 
     std::span<std::byte> body{chunkBase + sizeof(wire::ChunkHeader),

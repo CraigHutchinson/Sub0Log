@@ -17,6 +17,7 @@
  */
 
 #include <bit>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -303,19 +304,110 @@ inline constexpr std::uint32_t cNextChunkOffset = 128u;
 inline constexpr std::uint32_t cCompactSegmentHeaderBytes = cNextChunkOffset + 64u;
 static_assert(cCompactSegmentHeaderBytes % 64u == 0u);
 
+/// The CRC-32 nibble table: the 16 remainders of 0..15 under the reflected
+/// polynomial. 64 bytes of read-only data, computed at compile time.
+inline constexpr auto cCrc32NibbleTable = [] {
+    std::array<std::uint32_t, 16> table{};
+    for (std::uint32_t n = 0; n < 16u; ++n) {
+        std::uint32_t crc = n;
+        for (int bit = 0; bit < 4; ++bit) {
+            crc = (crc & 1u) != 0u ? (crc >> 1u) ^ 0xEDB88320u : crc >> 1u;
+        }
+        table[n] = crc;
+    }
+    return table;
+}();
+
+/// Standard CRC-32 (ISO 3309 / zlib's polynomial, 0xEDB88320), incremental in
+/// the same shape zlib's own `crc32()` is: the value returned from one call
+/// feeds the next as `crc`, starting from 0, and the caller never sees the
+/// bit-complemented internal state -- ~~x == x makes that chaining sound.
+/// Runs once per `Segment::claimChunk()` (docs/vnext-header-checksum.md),
+/// not per record -- but a claim is on the producer's cold path, and on a
+/// microcontroller with small chunks it is not rare. Bit-by-bit cost 1282
+/// instructions per claim on a Cortex-M4 against 98 without a checksum
+/// (docs/embedded.md); a 256-entry table would be 1 KiB of flash. Half a
+/// byte at a time through a 16-entry table is the trade between them: 64
+/// bytes, two lookups per byte. CRC-32 (not -32C, and not a keyed hash)
+/// matches the threat model surveyed in `docs/framing-and-recovery.md` --
+/// burst/bit-flip corruption of an otherwise-legible header, the same reason
+/// LevelDB, TFRecord and Kafka each checksum a header with a CRC rather than
+/// a cryptographic hash.
+[[nodiscard]] constexpr std::uint32_t crc32(std::uint32_t crc, const std::byte* const data,
+                                            const std::size_t len) noexcept
+{
+    crc = ~crc;
+    for (std::size_t i = 0u; i < len; ++i) {
+        crc ^= static_cast<std::uint8_t>(data[i]);
+        crc = (crc >> 4u) ^ cCrc32NibbleTable[crc & 0xFu];
+        crc = (crc >> 4u) ^ cCrc32NibbleTable[crc & 0xFu];
+    }
+    return ~crc;
+}
+
 struct ChunkHeader {
     std::uint64_t generation_;  ///< Must equal SegmentHeader::generation_ (R3.4).
     std::uint64_t ownerThread_; ///< Producer thread id, for R2.2 filtering.
     std::uint64_t claimMonoNs_;
+    /// CRC-32 (wire::crc32(), via computeChunkHeaderChecksum()) over
+    /// generation_, ownerThread_, claimMonoNs_ and chunkSizeClass_ -- the
+    /// fields a reader actually decodes before it trusts this chunk, not
+    /// the still-reserved padding past it. 0 means "not present": a
+    /// never-claimed chunk's whole header (this field included) is already
+    /// all-zero from ftruncate, and a chunk stamped before this field
+    /// existed left the same silent, always-zero reserved space here --
+    /// exactly the chunkSizeClass_ precedent below, one field over. That is
+    /// what makes this purely additive: an old reader still never looks at
+    /// it, and a new reader meeting an old or never-claimed chunk's 0 skips
+    /// verification exactly as if the field did not exist. Any other
+    /// stored value must match the computed one or the header is corrupt
+    /// (docs/vnext-header-checksum.md); computeChunkHeaderChecksum() remaps
+    /// a genuine computation that lands on exactly 0 to 1, so 0 stays a
+    /// value only "not present" ever produces.
+    std::uint32_t headerChecksum_{0};
     /// 0 ("unspecified") or a real class -- see cChunkSizeUnit's own comment
     /// for what each means and why this is purely additive. Occupies one
     /// byte of what was, before this field existed, eight bytes of silent
     /// reserved space; the other seven stay reserved.
     std::uint8_t chunkSizeClass_{0};
-    std::uint8_t reserved_[7]{};
+    std::uint8_t reserved_[3]{};
 };
 static_assert(std::is_trivially_copyable_v<ChunkHeader>);
 static_assert(sizeof(ChunkHeader) == 32u);
+
+/// Computes ChunkHeader::headerChecksum_ for the fields whose corruption
+/// could send a reader astray -- generation_, ownerThread_, claimMonoNs_,
+/// chunkSizeClass_ -- not the still-reserved padding. Two crc32() calls
+/// rather than one: headerChecksum_ itself sits between claimMonoNs_ and
+/// chunkSizeClass_ in the stamped struct (placed there so it stays 4-byte
+/// aligned with zero compiler-inserted padding, confirmed against a real
+/// compile rather than assumed), so the four checksummed fields are not one
+/// contiguous byte range of the struct as laid out on disk; the three
+/// leading uint64_t fields are contiguous (24 bytes) and chunkSizeClass_
+/// follows as a second, separate 1-byte span.
+[[nodiscard]] inline std::uint32_t computeChunkHeaderChecksum(
+    const std::uint64_t generation, const std::uint64_t ownerThread,
+    const std::uint64_t claimMonoNs, const std::uint8_t chunkSizeClass) noexcept
+{
+    // memcpy rather than loadUnaligned/storeUnaligned (declared later in
+    // this file, past every on-disk struct): the same raw byte-copy those
+    // wrap, needed here only because this function is defined before them.
+    struct Head {
+        std::uint64_t generation_;
+        std::uint64_t ownerThread_;
+        std::uint64_t claimMonoNs_;
+    };
+    static_assert(std::is_trivially_copyable_v<Head>);
+    static_assert(sizeof(Head) == 24u);
+    const Head head{generation, ownerThread, claimMonoNs};
+    std::byte buf[sizeof(Head)];
+    std::memcpy(buf, &head, sizeof(Head));
+
+    std::uint32_t crc = crc32(0u, buf, sizeof(buf));
+    const auto classByte = static_cast<std::byte>(chunkSizeClass);
+    crc = crc32(crc, &classByte, 1u);
+    return (crc == 0u) ? 1u : crc;
+}
 
 // Payload prefixes. Argument bytes follow MessagePayload; the definition's
 // variable tail (type codes, then u16-length-prefixed format and file

@@ -85,7 +85,7 @@ against a buffer sized to run dry (below).
 | no-exceptions, no-RTTI build of the embedded producer | **met** on GCC/Clang | `Sub0LogEmbeddedProducer` and `Sub0LogFreestandingProbe` are built `-fno-exceptions -fno-rtti`; MSVC builds with `/GR-` only (MSVC's STL does not support `_HAS_EXCEPTIONS=0`) |
 | code size and RAM measured, not estimated | **met** for 32-bit ARM Cortex-A and for Cortex-M3/M4/M7/M33 | numbers below and in "Cortex-M"; CI's `embedded-arm` and `embedded-cortex-m` jobs rebuild and print them |
 | embedded-produced segment decodes with the desktop tooling | **met** | `embedded::decode` runs `sub0log-cat` on the buffer `embedded::producer` dumped |
-| Android pause/resume/termination established by a test | **not done** | needs an NDK toolchain and an emulator in CI; see "Still open" |
+| Android pause/resume/termination established by a test | **met** | CI `android-lifecycle`: a NativeActivity on an API 34 emulator through launch, pause, resume and `am force-stop` (SIGKILL), twice; "Android" below has what it establishes |
 
 Also covered: a previous run's records in the buffer do not reappear
 (`memory_segment.test.cpp`, confirmed to fail with the zeroing removed);
@@ -349,11 +349,21 @@ Loop overhead (3 instructions) is included; each chunk is 4 KiB.
 
 | operation | M3 `-Os` | M4 `-Os` | M7 `-Os` | M33 `-Os` | M4 `-O2` |
 |---|---|---|---|---|---|
-| `emit.fixed2` (two fixed args) | 230 | 230 | 229 | 234 | 154 |
-| `emit.string16` (one 16-byte string) | 518 | 502 | 498 | 523 | 338 |
+| `emit.fixed2` (two fixed args) | 233 | 233 | 232 | 238 | 158 |
+| `emit.string16` (one 16-byte string) | 521 | 505 | 501 | 527 | 339 |
 | `emit.disabled` (threshold filters it) | 29 | 29 | 28 | 32 | 10 |
-| `claim.claimChunk` (+ header stamp) | 98 | 98 | 98 | 98 | 68 |
-| `claim` refused (segment full) | 64 | 64 | 64 | 64 | 17 |
+| `claim.claimChunk` (+ header stamp and CRC-32) | 407 | 407 | 407 | 407 | 339 |
+| `claim` refused (segment full) | 64 | 64 | 64 | 64 | 27 |
+
+The claim includes the chunk-header CRC-32 (`vnext-header-checksum.md`),
+which was integrated after the first measurements. Before the checksum a
+claim cost 98 instructions (`-Os`) and 68 (`-O2`). Computed bit by bit, as
+first written, the checksum raised that to 1,282 and 1,214, about 13×, and
+it showed in per-emit averages because firmware uses small chunks and
+claims often. A 16-entry nibble table (64 bytes of flash, 2 lookups per
+byte, checked against an independent bit-by-bit reference) brings it to 407
+and 339, and per-emit cost back within a few instructions of where it was.
+A 256-entry table would be faster still, but costs 1 KiB of flash.
 
 `-Os` keeps `detail::enabled()` and `Logger::active()` out of line, so a
 disabled site pays two calls: 29 instructions against 10 at `-O2`. A
@@ -398,6 +408,109 @@ the default 64 KiB chunk and the ~40-byte records above, that is once per
 Cortex-M there is no 64-bit path to compare against; the split protocol
 is the only lock-free one there is.
 
+## Android
+
+`tests/android/` is an NDK consumer: a NativeActivity with no Java code
+(`lifecycle.cpp`), built into an APK with the SDK and NDK command-line tools
+alone (`build_apk.sh`). CI's `android-lifecycle` job runs it on an x86_64
+API 34 emulator. The app logs the same records to two backends at once:
+
+- a **file segment** in app-private storage (`internalDataPath`);
+- an **in-memory segment**, written out whole on every pause. This is the
+  hand-off recipe, because a paused app can be killed without another
+  callback.
+
+`run_lifecycle.sh` takes it through launch, HOME (pause and stop), relaunch
+(resume), then `am force-stop` (SIGKILL, what the system does to a
+background app under memory pressure), and repeats with a second process.
+It then pulls the app's files with `run-as` and decodes them with the desktop
+`sub0log-cat`. `check_lifecycle.sh` establishes:
+
+| behaviour | established |
+|---|---|
+| pause and resume | nothing happens to either backend: the process, its mapping and its buffer carry on. The callbacks are ordinary records in both |
+| termination | **no callback at all**: neither `APP_CMD_DESTROY` nor the loop exit is ever recorded. Anything that depends on a shutdown hook never runs |
+| file segment across SIGKILL | decodes with nothing undecodable, and holds records right up to the kill, beyond the last pause. This is R3.1 holding on Android: the mapping belongs to the kernel |
+| in-memory segment across SIGKILL | keeps only what the last pause handed off. Everything written after it existed only in process memory and died with the process |
+| a new process after the kill | writes its own new segment, as R5.1 says, and both runs decode together |
+
+The first CI run found one more thing about Android. An explicit
+`am start -n` of an app with the default `standard` launch mode does not
+resume a paused activity. It stacks a **second activity instance, with a
+second `android_main`, in the same process**, which wrote a third segment
+and competed with the first loop for the process-wide binding. The app now
+declares `launchMode="singleTask"` and the driver relaunches with the
+launcher's own intent. That is what a real app and a real home screen do,
+and it is also advice for any NativeActivity consumer: one `android_main`
+per process is what one bound Logger assumes. Every "created" record
+carries the pid, and the checker requires two runs in two processes.
+
+The same checker was first run on the host, against the real
+`lifecycle.cpp` with Android's looper stubbed to replay the lifecycle and
+SIGKILL itself, before being pointed at the emulator.
+
+Writing it exposed a cost worth knowing about. A thread caches one chunk for
+one Logger at a time, so a thread that alternates between two Loggers, as
+the test does to write every record to both backends, **claims a fresh
+chunk on every switch**. The first version of the test filled both segments
+within seconds; code review caught it before CI did, and the host
+simulation reproduced it at emulator-length timelines. The test now sizes
+for it: small chunks, many of them, and every pause record carries both
+drop counters so the checker can rule out a full buffer. Per-call-site
+channels (`vnext-backends-and-memory.md` step 2) will need a writer cache
+that holds more than one Logger's chunk.
+
+Two further 32-bit findings came from building for every Android ABI:
+
+- **The reader could tear a head word on 32-bit ARM.** armv7-a has
+  lock-free 64-bit atomics (`LDREXD`/`STREXD`), so it takes the 64-bit path,
+  but a plain 8-byte load there is not single-copy atomic. A live
+  in-process reader (`--follow`, a tailer) could see a new commit tag with
+  a stale length. The existing publish test showed it at once under
+  `qemu-arm`: 72 torn records in 20,000. `detail::loadHeadWord` now reads
+  tag-first on every path, as the split path already did (5 of 5 clean
+  runs since). CI's `linux-armv7-qemu` runs the whole suite as armv7. The
+  bug predates this work: it is in every release that had a live reader.
+- **`libatomic`, where a toolchain needs it.** A compiler may lower an
+  atomic operation to an out-of-line `__atomic_*` call even for a width the
+  target handles natively. On 32-bit Android ABIs that is the documented
+  reason to link `-latomic`. The root `CMakeLists.txt` now link-probes the
+  library's own atomic operations and, only if they need it, adds `atomic`
+  to `Sub0Log::Sub0Log`'s link interface. That mechanism was checked on a
+  toolchain that does need it (64-bit atomics on `-m32 -march=i386`). The
+  APK now builds all four ABIs (armeabi-v7a, arm64-v8a, x86, x86_64), and
+  each `.so` is checked for unresolved `__atomic_*` symbols, which would
+  link and then fail only at load time on a device. With GCC, armhf and
+  aarch64 needed no library calls at all.
+
+Building for Android also exposed a hard blocker: **libc++ 18, which the
+NDK ships through r27, has no `std::atomic_ref`**. The library failed to
+build against it with 440 errors. `detail::AtomicRef` now falls back to the
+`__atomic` builtins, which are what `atomic_ref` compiles to, and CI's
+`linux-clang-libcxx` job runs the whole suite on libc++ 18.
+
+## Rotation and hand-off
+
+`examples/13_rotation.cpp` is the recipe for a long-running session:
+
+1. Watch `Logger::usage()`.
+2. Rotate one chunk before the segment fills, or on a lifecycle event such
+   as a pause.
+3. Hand the finished segment to an outbox, which is where an uploader or a
+   pull takes it from.
+4. Keep the newest N.
+5. Merge everything kept back into one stream.
+
+It runs as an example ctest: 21 rotations, 3000 events, every one
+recovered exactly once and none dropped. A second run keeping only 3 bounds
+the outbox to 3.
+
+Its limit is stated in the example. `ScopedBind` is scoped, so a swap is
+"unbind, bind next". On the single producer thread, which is what firmware
+main loops and app loops are, nothing can land in between. With several
+producer threads, an emit in that gap is counted by `unboundEmits()`, and
+the retired Logger must outlive every producer's next emit (item 7).
+
 ## Still open
 
 **1. Cores the split protocol does not reach.** ARMv6-M (Cortex-M0/M0+)
@@ -425,18 +538,9 @@ register per task and lays out a `.tbss` block for each (Zephyr does, with
 `CONFIG_THREAD_LOCAL_STORAGE`). Where that is not available, this needs a
 single-writer mode with the cache as a plain `Logger` member.
 
-**4. Android.** An NDK consumer test using app-private storage, and a test
-that establishes -- rather than assumes -- what survives pause, resume and
-termination. The file-segment path is POSIX and should need nothing new on
-Android; what needs establishing is the process lifecycle (a backgrounded
-app killed by the low-memory killer is a hard kill, which R3.1 covers for a
-file segment and does not for an in-memory one). It needs an NDK toolchain
-and an emulator job in CI, which this change does not add.
+**4. (Done: "Android" above.)**
 
-**5. A bounded-segment rotation/handoff recipe** for long-running sessions.
-`vnext-segment-rollover.md` is the design; until it is built, the recipe is
-"a new `Logger` per interval, merged at read time", which `README.md`'s
-"Operating it" already describes.
+**5. (Done: `examples/13_rotation.cpp`, "Rotation and hand-off" above.)**
 
 **6. Keeping logging off ISR-equivalent paths.** Nothing here makes an emit
 interrupt-safe: an interrupt that preempts a thread mid-record on the same

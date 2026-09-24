@@ -35,7 +35,8 @@ set(SUB0LOG_EXAMPLES
     08_testing_your_code
     09_operating
     10_child_capture_git
-    11_continuation_chains)
+    11_continuation_chains
+    13_rotation)
 
 set(SUB0LOG_EXAMPLES_NEEDING_THREADS
     03_correlation

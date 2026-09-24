@@ -190,7 +190,7 @@ void checkPublishedRecordsAreWhole()
             }
             for (std::uint32_t& value : slot.payload) {
                 // Relaxed, so the only ordering is the head word's acquire.
-                if (std::atomic_ref<std::uint32_t>{value}.load(std::memory_order_relaxed) != r) {
+                if (sub0log::detail::AtomicRef<std::uint32_t>{value}.load(std::memory_order_relaxed) != r) {
                     torn.fetch_add(1);
                 }
             }
@@ -200,14 +200,14 @@ void checkPublishedRecordsAreWhole()
 
     for (std::uint32_t r = 1; r <= cRounds; ++r) {
         // Reset between rounds, while the reader is parked on `round`.
-        std::atomic_ref<std::uint64_t>{*wire::startUint64LifetimeAt(slot.head.data())}.store(
+        sub0log::detail::AtomicRef<std::uint64_t>{*wire::startUint64LifetimeAt(slot.head.data())}.store(
             0, std::memory_order_relaxed);
         round.store(r, std::memory_order_release);
         // The payload is written *after* the reader is released, so the
         // only thing ordering it before the reader's checks is the commit's
         // release and the reader's acquire -- the property under test.
         for (std::uint32_t& value : slot.payload) {
-            std::atomic_ref<std::uint32_t>{value}.store(r, std::memory_order_relaxed);
+            sub0log::detail::AtomicRef<std::uint32_t>{value}.store(r, std::memory_order_relaxed);
         }
         storeHeadWord<Split>(slot.head.data(),
                              packed(static_cast<std::uint16_t>(r % 997u + 1u),

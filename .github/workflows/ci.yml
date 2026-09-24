@@ -245,6 +245,96 @@ jobs:
           cmake --build build-stress
           ./build-stress/benchmarks/Sub0LogStress --quick
 
+  linux-clang-libcxx:
+    # The whole suite against LLVM's libc++ 18, the standard library the
+    # Android NDK (through r27) ships. libc++ 18 has no std::atomic_ref, so
+    # this is the leg that exercises detail::AtomicRef's builtin fallback;
+    # before it existed the library did not build against libc++ 18 at all.
+    name: linux-clang-libcxx
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang-18 libc++-18-dev libc++abi-18-dev
+      - name: Configure
+        env:
+          CXX: clang++-18
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS=-stdlib=libc++
+          -DCMAKE_EXE_LINKER_FLAGS=-stdlib=libc++
+          -DCMAKE_SHARED_LINKER_FLAGS=-stdlib=libc++
+          -DCMAKE_MODULE_LINKER_FLAGS=-stdlib=libc++
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  linux-armv7-qemu:
+    # The whole suite as 32-bit ARM (armv7-a hard-float, the ISA of Android
+    # armeabi-v7a), cross-compiled and run under qemu-arm. A core with
+    # lock-free 64-bit atomics (LDREXD/STREXD) but no single-copy-atomic
+    # plain 8-byte load: the first run of this found the reader pairing a
+    # new commit tag with a stale length on the 64-bit path (72 torn records
+    # in 20,000; detail::loadHeadWord now reads tag-first on every path).
+    # The three system tests that exec sub0log-cat as a subprocess are
+    # excluded: exec'ing an ARM binary needs binfmt_misc, and they test the
+    # tool's command line, which every native job already covers.
+    name: linux-armv7-qemu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build g++-arm-linux-gnueabihf qemu-user
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm
+          -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc
+          -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
+          "-DCMAKE_CROSSCOMPILING_EMULATOR=qemu-arm;-L;/usr/arm-linux-gnueabihf"
+          -DSUB0LOG_TEST_QT=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test (under qemu-arm)
+        run: >
+          ctest --test-dir build --output-on-failure -j4 --timeout 1800
+          -E "sub0log-cat (renders|says so|--follow)"
+
+  android-lifecycle:
+    # Issue #2: Android pause/resume/termination established by a test. A
+    # NativeActivity (tests/android/lifecycle.cpp) built with the runner's
+    # NDK into an APK, run on an x86_64 emulator, taken through
+    # launch -> HOME (pause) -> relaunch (resume) -> am force-stop (SIGKILL),
+    # twice; its app-private files are pulled with run-as and decoded by the
+    # desktop sub0log-cat (tests/android/check_lifecycle.sh says what is
+    # asserted).
+    name: android-lifecycle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Build sub0log-cat (host)
+        run: |
+          cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=Release -DSUB0LOG_BUILD_TESTING=OFF
+          cmake --build build-host --target sub0log-cat
+      - name: Build the APK (all four ABIs, universal)
+        run: sh tests/android/build_apk.sh "$PWD" "$PWD/build-android"
+      - name: Run on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: sh tests/android/run_lifecycle.sh "$PWD/build-android/lifecycle.apk" "$PWD/build-host/tools/sub0log-cat" "$PWD/build-android/pulled"
+
   stress-quick:
     # The stress harness asserts invariants under load rather than measuring,
     # so unlike the KPI numbers it *is* a legitimate pass/fail gate. --quick

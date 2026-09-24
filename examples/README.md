@@ -111,6 +111,7 @@ than a terminal -- this call is worth revisiting.
 | 10 | `10_child_capture_git.cpp` | The use case 06 only sets up: a real tool (`git`, against a throwaway repository) whose output is worth reacting to -- harvesting a commit hash, noticing a specific failure line, suppressing a boilerplate trailer. Skips cleanly (exit `0`) if `git` is not on the machine. | R5.5, R5.6, R9.1 |
 | 11 | `11_continuation_chains.cpp` | What actually happens to a `std::string`/`std::string_view` argument over `cInlineBytesCap` (512) bytes: it arrives *whole*, reassembled from a bounded chain of further records, up to a 4096-byte ceiling -- past which it is truncated and the record says so. | R1.2, R2.1, R9.2 |
 | 12 | `plugin_abi/host.cpp` + `plugin_abi/plugin.cpp` | R4's C ABI: a plugin built `-fvisibility=hidden`, linking nothing and including only `sub0log_abi.h`, logging into a host it never links against -- and staying decodable after the host unloads it. The one example in this ladder that is a host and a plugin rather than one file (a plugin, by definition, cannot be the same translation unit as its host). | R4.1-R4.3, R6.1 |
+| 13 | `13_rotation.cpp` | A long-running session on bounded segments: watch `Logger::usage()`, rotate before the segment fills (and on a lifecycle event like an app pause), hand the finished segment off to an outbox, keep the newest N, and merge everything kept back into one stream -- every event exactly once. Issue #2's rotation/handoff recipe. | R9.1, R5.2 |
 
 **On the POSIX-only entries, precisely.** 04 and 05 are POSIX-only because
 of what they specifically do -- installing a POSIX signal handler, and
@@ -148,7 +149,7 @@ cmake --build build
 ```
 
 This adds one executable per example (`sub0log_example_01_hello` through
-`sub0log_example_11_continuation_chains`, plus
+`sub0log_example_11_continuation_chains`, `sub0log_example_13_rotation`, plus
 `sub0log_example_12_plugin_abi_host` and its plugin,
 `sub0log_example_12_plugin_abi_plugin`), each linking `Sub0Log::Sub0Log`
 the same way any downstream consumer would -- except the plugin target
