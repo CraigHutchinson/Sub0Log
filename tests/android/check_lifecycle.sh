@@ -6,7 +6,8 @@
 #
 # Established (fails otherwise):
 #   1. Every file segment decodes with the desktop tool: nothing undecodable.
-#   2. One file segment per process: two launches, two segments.
+#   2. One file segment per process: two launches, two segments, two pids
+#      (a relaunch that stacks a second activity in the same process fails).
 #   3. The lifecycle is recorded: created, pause and resume in run 1,
 #      created in run 2.
 #   4. Termination gave no callback: no DESTROY and no loop exit was
@@ -29,6 +30,12 @@ set -- "$dir"/lifecycle-*.s0l
 "$cat_tool" --stats "$@" > "$dir/file.txt" 2> "$dir/file-stats.txt" || fail "sub0log-cat on file segments"
 cat "$dir/file-stats.txt"
 grep -q 'undecodable 0 record' "$dir/file.txt" "$dir/file-stats.txt" || fail "undecodable records in file segments"
+
+# One android_main per process: exactly two "created" records, two pids.
+created=$(grep -c 'created run ' "$dir/file.txt" || true)
+[ "$created" -eq 2 ] || fail "expected 2 'created' records (one per process), found $created"
+pids=$(grep -o 'created run [0-9]* pid [0-9]*' "$dir/file.txt" | awk '{print $5}' | sort -u | wc -l)
+[ "$pids" -eq 2 ] || fail "the two runs share a process -- the relaunch stacked a new activity instead of resuming"
 
 for want in 'created run 1' 'pause run 1 n 1' 'resume run 1 n 1' 'resume run 1 n 2' 'created run 2'; do
     grep -q "$want" "$dir/file.txt" || fail "file segments lack '$want'"

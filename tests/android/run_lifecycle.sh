@@ -13,7 +13,13 @@ adb wait-for-device
 adb uninstall "$pkg" >/dev/null 2>&1 || true
 adb install -r "$apk"
 
-launch() { adb shell am start -W -n "$activity"; }
+# Launched the way the home screen launches it (MAIN/LAUNCHER, new task),
+# so a relaunch resumes the existing task instead of stacking a new
+# activity instance on it.
+launch() {
+    adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER \
+        -f 0x10200000 -n "$activity"
+}
 
 # Run 1: launch, background (HOME: pause + stop), foreground again (resume),
 # then terminate the way the system does -- SIGKILL, no callback.

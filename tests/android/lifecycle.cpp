@@ -35,6 +35,7 @@
 #include <android_native_app_glue.h>
 
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -160,7 +161,11 @@ void android_main(android_app* const app)
     state.file = &file;
     state.memory = &memory;
 
-    both(state, [&] { sub0log_info(cApp, "created run {}", state.run); });
+    // The pid lets the checker tell "a new process" (what a kill forces)
+    // from "a new activity instance in the same process" (what a stacked
+    // launch would do) -- the first CI run met exactly that second case.
+    const auto pid = static_cast<std::uint32_t>(::getpid());
+    both(state, [&] { sub0log_info(cApp, "created run {} pid {}", state.run, pid); });
 
     app->userData = &state;
     app->onAppCmd = onAppCmd;

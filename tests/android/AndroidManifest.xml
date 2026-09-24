@@ -7,8 +7,13 @@
     <application android:label="Sub0Log lifecycle"
                  android:hasCode="false"
                  android:extractNativeLibs="true">
+        <!-- singleTask: relaunching brings this instance back (resume) rather
+             than stacking a second NativeActivity -- and a second android_main
+             -- in the same process, which is what the default launch mode
+             does for an explicit `am start -n`. -->
         <activity android:name="android.app.NativeActivity"
                   android:exported="true"
+                  android:launchMode="singleTask"
                   android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|uiMode">
             <meta-data android:name="android.app.lib_name" android:value="sub0log_lifecycle" />
             <intent-filter>
