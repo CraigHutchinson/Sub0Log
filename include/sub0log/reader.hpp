@@ -311,7 +311,10 @@ inline SegmentReader SegmentReader::open(std::span<const std::byte> image) noexc
     // Order matters: size before any field is read, magic before version,
     // version before geometry -- version gates how everything after it is
     // interpreted (the Kafka lesson, docs/framing-and-recovery.md).
-    if (image.size() < wire::cSegmentHeaderBytes) {
+    // The header struct, not a file's page-sized header area: an in-memory
+    // segment's header area is wire::cCompactSegmentHeaderBytes, and how big
+    // the area is comes from headerBytes_ below, checked against the image.
+    if (image.size() < sizeof(wire::SegmentHeader)) {
         reader.error_ = SegmentError::TooSmall;
         return reader;
     }

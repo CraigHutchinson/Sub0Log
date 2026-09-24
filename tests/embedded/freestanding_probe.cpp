@@ -18,7 +18,11 @@
 #include <string_view>
 
 // A real port wires these to its RTOS: a monotonic tick counter scaled to
-// ns, an RTC (or 0), a node/image id, and the current task handle.
+// ns, an RTC, a node/image id, and the current task handle. With no RTC,
+// the wall hook returns the *monotonic* reading, not 0: readers align each
+// segment through its (monotonic, wall) anchor pair, and a constant wall
+// clock would restart every segment's timeline at the same instant
+// (docs/embedded.md, "Ordering across rotated segments").
 namespace {
 std::uint64_t gTicks = 0;
 }
@@ -27,7 +31,7 @@ extern "C" std::uint64_t sub0log_platform_monotonic_ns(void) noexcept
     gTicks += 1000u;
     return gTicks;
 }
-extern "C" std::uint64_t sub0log_platform_wall_ns(void) noexcept { return 0u; }
+extern "C" std::uint64_t sub0log_platform_wall_ns(void) noexcept { return gTicks; }
 extern "C" std::uint64_t sub0log_platform_process_id(void) noexcept { return 1u; }
 extern "C" std::uint64_t sub0log_platform_thread_id(void) noexcept { return 1u; }
 

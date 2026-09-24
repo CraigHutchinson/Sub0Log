@@ -105,7 +105,7 @@ shapes, `SUB0LOG_PLATFORM_CUSTOM`. Built with `arm-none-eabi-g++` 13.2.1,
 
 | | 1 call site | 10 call sites |
 |---|---|---|
-| Sub0Log's own code (`sub0log::*` + `main`) | 3.8 KB | 8.7 KB |
+| Sub0Log's own code (`sub0log::*` + `main`) | 3.9 KB | 8.8 KB |
 | C++ runtime: `operator new`, EH personality, unwinder | 6.7 KB | 6.7 KB |
 | `malloc`/`free` | 3.4 KB | 3.4 KB |
 | `getenv`/`strtoull` | 1.1 KB | 1.1 KB |
@@ -139,9 +139,146 @@ A firmware image that already has `malloc` and `memcpy` pays about 4 KB +
 | per logging thread: the writer cache (`thread_local`) | 32 B | 32 B |
 | per call site: its `SiteDescriptor` (static, `constinit`) | 40 B | 56 B |
 | the segment | the caller's buffer, exactly | the caller's buffer, exactly |
+| of which, header area | 192 B (`wire::cCompactSegmentHeaderBytes`) | 192 B |
 
 Plus a pointer for the active binding. Nothing else: no queue, no heap, no
 worker thread.
+
+## Custom endpoints and other firmware use cases: due diligence
+
+Issue #2's real question is broader than "a RAM buffer": device firmware
+wants records to end up in raw NVM, on a debug link, in a crash dump, or
+somewhere bespoke. That was meant to be in scope from the start, so each
+kind of endpoint was checked against what exists, by test or experiment
+where one was possible, and the answer is written per endpoint rather than
+as a general "covered".
+
+**The organising fact:** the producer writes with plain stores and one
+atomic, so its target must be *byte-addressable memory that behaves like
+RAM*. Everything else is reached by *draining*: producers write RAM, and a
+low-priority task moves finished segments to wherever they need to go,
+entirely off the emit path. The in-memory backend covers the first kind
+directly, and the drain pattern (below) covers the rest with no new
+producer-side mechanism.
+
+| endpoint | how | status |
+|---|---|---|
+| SRAM, TCM, PSRAM, any RAM | `createInMemory` over it | **covered**, tested |
+| retained RAM across a warm reset (post-mortem, crash log) | `createInMemory` over the retained region; **read it before creating the next Logger**, because creation zeroes it | **covered**; the read-then-recreate order is tested ("post-mortem") |
+| debugger / core dump (SWD, JTAG, a crash dump that includes RAM) | put the buffer at a known symbol; dump it (`dump binary memory` in GDB) and hand the file to `sub0log-cat` | **covered**: a dumped buffer is exactly what `embedded::decode` reads |
+| memory-mapped, word-writable NVM (MRAM, FRAM, RRAM behind a mapped controller) | `createInMemory` over the mapped region | **works mechanically, with four caveats** (below); not tested on hardware |
+| page/block NVM (internal or SPI/QSPI NOR flash, NAND, EEPROM, SD/eMMC, a filesystem such as littlefs) | drain: RAM segments, whole images programmed by a background task | **covered by the drain pattern**, tested with a stand-in sink; two findings (below) |
+| streaming links (UART, SWO/ITM, RTT-style RAM rings, USB CDC, BLE, CAN) | drain, shipping images or claimed chunks | **the pattern fits**; lossy links need framing Sub0Log does not add (below) |
+| a second core (AMP: application + network core) | one buffer per core, `process_id` hook = core id, merged like processes | **fits the multi-process model**; needs a shared timebase (below) |
+
+### The drain pattern, and what the test proves
+
+`memory_segment.test.cpp`, "A/B in-memory segments drained to a custom
+sink lose nothing": two buffers; producers log into the bound one; a
+control task watches `Logger::usage()` and, one chunk before the end, binds
+a fresh `Logger` over the spare buffer and hands the full one to the sink
+whole. 3000 records over dozens of rotations: zero dropped, every record
+recovered in order by the ordinary reader.
+
+`Logger::usage()` was added for this. `Stats` says what was lost; nothing
+said how close loss was, and a rotator or drain cannot decide without it.
+It is chunks claimed out of the total, from one relaxed load, clamped
+because the raw cursor counts refused claims past the end. It is also what
+`vnext-segment-rollover.md`'s layer 1 assumed `Stats` would provide.
+
+Findings from building it:
+
+- **Reuse needs a quiescent point.** After the swap, a producer that was
+  mid-record in the old buffer is still writing there. Draining it
+  meanwhile is safe (an uncommitted record is simply not there yet), but
+  *re-creating a Logger over it* zeroes memory under that producer. The
+  test is single-producer, so the point is trivially reached; with several
+  producer tasks, the caller needs one (a scheduler lock, or every task
+  having logged once since the swap). The library gives no "everyone has
+  moved on" signal. That is open (item 7).
+- **Ordering across rotated segments depends on the wall hook.** `Merger`
+  aligns each segment through its own (monotonic, wall) anchor pair. With a
+  wall hook returning a constant, as an RTC-less port naturally would,
+  every segment's timeline restarts at the same instant: measured, 2999 of
+  3000 records merged out of order. With the wall hook returning the
+  monotonic reading, 0 out of order. The platform header and the probe now
+  say so. On the host, anchors sampled milliseconds apart misordered 7
+  records at one boundary through clock-sampling error, so a sink that
+  knows its own order (a flash log does) should read in that order.
+- **Erased flash reads as damage, not as empty.** NOR erases to `0xFF`; the
+  format's "unwritten" is zero. Measured: an image whose unused space is
+  `0xFF` still decodes every record, but the reader reports that space as
+  `unreadableBytes()` rather than `unwrittenBytes()`, so health counters
+  would flag damage that is not there. Programming whole images (as the
+  test does) avoids it, since RAM supplies the zeros; a sink that programs
+  only claimed chunks, to save flash, hits it. The fix is reader-side and
+  additive (treat a chunk whose header is entirely erased as unwritten),
+  and is open (item 8) rather than done here because it touches R3.4's
+  "positive evidence" rule.
+- **Never commit in place on page NVM.** Commit-last writes the payload,
+  then the head word, into the same few bytes of storage. Flash with ECC
+  program units (commonly 8 to 32 bytes) cannot program a unit twice, so
+  records written directly to flash would corrupt themselves. Staging in
+  RAM and programming whole images is the rule, not an optimisation.
+
+### Memory-mapped NVM: the four caveats
+
+A span over MRAM/FRAM/RRAM works, and the tests' logic applies unchanged,
+but "the same code" is not "the same guarantees":
+
+1. **Creation writes every cell.** `createInMemory` zeroes the whole
+   region, once per Logger. On NVM that is wear and time, per boot.
+2. **Stores cost NVM write time.** "No lock, no allocation" still holds;
+   "costs what a RAM store costs" does not. Emit latency is bounded by the
+   part's write timing, which the benchmark numbers do not describe.
+3. **A store is not a persistence barrier.** Some controllers need a
+   write-enable, or buffer writes until a flush. Without a barrier between
+   payload and head word, a power cut can persist the head (which passes
+   its commit tag) and lose the payload behind it. Power-loss safety on
+   NVM therefore needs a platform hook at commit, which is a per-record
+   cost and so belongs to a named NVM policy, never the default. Open
+   (item 9).
+4. **Survival is the part's, not the library's.** Consistent with the
+   backend table above: the library does not know what the span is and
+   claims nothing beyond what the memory itself gives.
+
+Retained RAM has two caveats of its own: the region must be outside any
+write-back data cache (or cleaned before reset), or a warm reset loses the
+dirty lines; and ECC-protected SRAM can fault when read uninitialised after
+a cold boot, so the "read the previous boot" step should be gated on the
+reset reason.
+
+### Other firmware concerns checked
+
+- **Format strings and file paths go into the buffer.** A site's first use
+  writes its definition record, format text and `__FILE__` included, into
+  the segment. On a small buffer that is real space. Measured here: with
+  128-byte chunks a definition carrying an absolute build path does not
+  share a chunk with its message. `-ffile-prefix-map`/`-fmacro-prefix-map`
+  shortens `__FILE__` at no cost and is the first thing a firmware build
+  should set. Keeping strings out of the buffer entirely, resolved on the
+  host from the ELF as dictionary-style firmware loggers do, would be a
+  bigger saving and a real design question: the format is deliberately
+  self-describing, and giving that up per target is a trade to make
+  explicitly. Open (item 10).
+- **Sleep and low power.** There is no background thread and nothing to
+  wake: a quiet firmware costs nothing. Timestamps across sleep are only
+  right if the monotonic hook keeps counting through it (an RTC-backed
+  tick, not a clock that stops with the core).
+- **Second core / DMA readers.** A buffer read by another core or a DMA
+  engine needs cache maintenance the library does not do; one buffer per
+  core avoids cross-core atomics altogether. Cores whose monotonic counters
+  differ need the wall hook to return a shared timebase for merging.
+- **Lossy streaming links.** The chunk header's generation gives a
+  receiver a resynchronisation point, but nothing in the format detects a
+  corrupted byte in a payload. A UART or radio sink should add its own
+  CRC framing per shipped chunk.
+- **Fault handlers.** Logging "last words" from a hard-fault handler is the
+  ISR case (item 6), with one twist: the system is going down, so a
+  handler may bind a dedicated fault `Logger` over its own small retained
+  buffer. That gives it a fresh chunk and leaves the interrupted task's
+  half-written chunk alone. It is a plausible recipe and is **not
+  verified**, so it is recorded here, not recommended.
 
 ## Still open
 
@@ -149,7 +286,7 @@ worker thread.
 `chunk.hpp` `static_assert`s `std::atomic_ref<std::uint64_t>::is_always_lock_free`,
 because the commit head word and the claim cursor are both u64, and a
 library-substituted lock would make R1.3 quietly false. ARMv7-M and ARMv8-M
-(every Cortex-M, including the nRF54-class parts that carry RRAM) have
+(every Cortex-M, including the recent parts with memory-mapped RRAM) have
 32-bit exclusives only, so today the build refuses them -- deliberately.
 
 The proposed way past it does **not** fork the wire format, which
@@ -212,6 +349,21 @@ core would share that thread's writer cache. Until a per-context channel
 exists (`vnext-backends-and-memory.md` step 2), the rule for firmware is the
 issue's own: no logging from an ISR unless that specific path has been
 verified safe.
+
+**7. A quiescence signal for buffer reuse** with several producer tasks
+(drain pattern, above). Options range from a per-thread epoch the rotator
+can wait on to documenting a scheduler-lock recipe per RTOS.
+
+**8. Erased-flash awareness in the reader:** report an all-erased chunk as
+unwritten, not unreadable (measured above).
+
+**9. An NVM persistence policy:** a platform barrier between payload and
+head word for memory-mapped NVM that must survive power loss, opt-in and
+named, because it costs every record.
+
+**10. Strings out of the buffer:** `__FILE__` shortening is available
+today; a dictionary mode (site text resolved from the firmware image on
+the host) is a format-level decision, recorded rather than taken.
 
 ## Reproducing the numbers
 

@@ -437,7 +437,7 @@ TEST_CASE("a message with no matching site definition is undecodable, others una
 
 TEST_CASE("SegmentReader::open validates size, magic, version and geometry in order")
 {
-    SUBCASE("an image smaller than the header page is TooSmall")
+    SUBCASE("an image smaller than the header itself is TooSmall")
     {
         std::vector<std::byte> tiny(10, std::byte{0});
         const SegmentReader reader = SegmentReader::open(tiny);
