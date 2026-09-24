@@ -117,6 +117,35 @@ TEST_CASE("crc32 matches the known test vector for \"123456789\"")
     CHECK(wire::crc32(0u, bytes, 9u) == 0xCBF43926u);
 }
 
+TEST_CASE("crc32's nibble table agrees with a bit-by-bit CRC-32 on every length and value")
+{
+    // An independent reference, written the textbook way, so the table
+    // cannot be checked only against itself.
+    const auto reference = [](const std::byte* data, std::size_t len) {
+        std::uint32_t crc = 0xFFFFFFFFu;
+        for (std::size_t i = 0; i < len; ++i) {
+            crc ^= static_cast<std::uint8_t>(data[i]);
+            for (int bit = 0; bit < 8; ++bit) {
+                crc = (crc & 1u) != 0u ? (crc >> 1u) ^ 0xEDB88320u : crc >> 1u;
+            }
+        }
+        return ~crc;
+    };
+    std::byte buffer[64];
+    std::uint32_t state = 0x12345678u;
+    for (int round = 0; round < 2000; ++round) {
+        for (std::byte& b : buffer) {
+            state = state * 1664525u + 1013904223u; // LCG: deterministic, varied bytes
+            b = static_cast<std::byte>(state >> 24u);
+        }
+        const std::size_t len = static_cast<std::size_t>(round) % (sizeof(buffer) + 1u);
+        CAPTURE(round);
+        CHECK(wire::crc32(0u, buffer, len) == reference(buffer, len));
+    }
+    static_assert(wire::cCrc32NibbleTable[0] == 0u);
+    static_assert(wire::cCrc32NibbleTable[8] == 0xEDB88320u); // 0b1000 -> the polynomial itself
+}
+
 TEST_CASE("crc32 is chainable: one call over N bytes equals two calls over any split")
 {
     const std::uint8_t data[6] = {1, 2, 3, 4, 5, 6};

@@ -349,11 +349,21 @@ Loop overhead (3 instructions) is included; each chunk is 4 KiB.
 
 | operation | M3 `-Os` | M4 `-Os` | M7 `-Os` | M33 `-Os` | M4 `-O2` |
 |---|---|---|---|---|---|
-| `emit.fixed2` (two fixed args) | 230 | 230 | 229 | 234 | 154 |
-| `emit.string16` (one 16-byte string) | 518 | 502 | 498 | 523 | 338 |
+| `emit.fixed2` (two fixed args) | 233 | 233 | 232 | 238 | 158 |
+| `emit.string16` (one 16-byte string) | 521 | 505 | 501 | 527 | 339 |
 | `emit.disabled` (threshold filters it) | 29 | 29 | 28 | 32 | 10 |
-| `claim.claimChunk` (+ header stamp) | 98 | 98 | 98 | 98 | 68 |
-| `claim` refused (segment full) | 64 | 64 | 64 | 64 | 17 |
+| `claim.claimChunk` (+ header stamp and CRC-32) | 407 | 407 | 407 | 407 | 339 |
+| `claim` refused (segment full) | 64 | 64 | 64 | 64 | 27 |
+
+The claim includes the chunk-header CRC-32 (`vnext-header-checksum.md`),
+which was integrated after the first measurements. Before the checksum a
+claim cost 98 instructions (`-Os`) and 68 (`-O2`). Computed bit by bit, as
+first written, the checksum raised that to 1,282 and 1,214, about 13×, and
+it showed in per-emit averages because firmware uses small chunks and
+claims often. A 16-entry nibble table (64 bytes of flash, 2 lookups per
+byte, checked against an independent bit-by-bit reference) brings it to 407
+and 339, and per-emit cost back within a few instructions of where it was.
+A 256-entry table would be faster still, but costs 1 KiB of flash.
 
 `-Os` keeps `detail::enabled()` and `Logger::active()` out of line, so a
 disabled site pays two calls: 29 instructions against 10 at `-O2`. A
@@ -424,6 +434,17 @@ It then pulls the app's files with `run-as` and decodes them with the desktop
 | in-memory segment across SIGKILL | keeps only what the last pause handed off. Everything written after it existed only in process memory and died with the process |
 | a new process after the kill | writes its own new segment, as R5.1 says, and both runs decode together |
 
+The first CI run found one more thing about Android. An explicit
+`am start -n` of an app with the default `standard` launch mode does not
+resume a paused activity. It stacks a **second activity instance, with a
+second `android_main`, in the same process**, which wrote a third segment
+and competed with the first loop for the process-wide binding. The app now
+declares `launchMode="singleTask"` and the driver relaunches with the
+launcher's own intent. That is what a real app and a real home screen do,
+and it is also advice for any NativeActivity consumer: one `android_main`
+per process is what one bound Logger assumes. Every "created" record
+carries the pid, and the checker requires two runs in two processes.
+
 The same checker was first run on the host, against the real
 `lifecycle.cpp` with Android's looper stubbed to replay the lifecycle and
 SIGKILL itself, before being pointed at the emulator.
@@ -438,6 +459,29 @@ for it: small chunks, many of them, and every pause record carries both
 drop counters so the checker can rule out a full buffer. Per-call-site
 channels (`vnext-backends-and-memory.md` step 2) will need a writer cache
 that holds more than one Logger's chunk.
+
+Two further 32-bit findings came from building for every Android ABI:
+
+- **The reader could tear a head word on 32-bit ARM.** armv7-a has
+  lock-free 64-bit atomics (`LDREXD`/`STREXD`), so it takes the 64-bit path,
+  but a plain 8-byte load there is not single-copy atomic. A live
+  in-process reader (`--follow`, a tailer) could see a new commit tag with
+  a stale length. The existing publish test showed it at once under
+  `qemu-arm`: 72 torn records in 20,000. `detail::loadHeadWord` now reads
+  tag-first on every path, as the split path already did (5 of 5 clean
+  runs since). CI's `linux-armv7-qemu` runs the whole suite as armv7. The
+  bug predates this work: it is in every release that had a live reader.
+- **`libatomic`, where a toolchain needs it.** A compiler may lower an
+  atomic operation to an out-of-line `__atomic_*` call even for a width the
+  target handles natively. On 32-bit Android ABIs that is the documented
+  reason to link `-latomic`. The root `CMakeLists.txt` now link-probes the
+  library's own atomic operations and, only if they need it, adds `atomic`
+  to `Sub0Log::Sub0Log`'s link interface. That mechanism was checked on a
+  toolchain that does need it (64-bit atomics on `-m32 -march=i386`). The
+  APK now builds all four ABIs (armeabi-v7a, arm64-v8a, x86, x86_64), and
+  each `.so` is checked for unresolved `__atomic_*` symbols, which would
+  link and then fail only at load time on a device. With GCC, armhf and
+  aarch64 needed no library calls at all.
 
 Building for Android also exposed a hard blocker: **libc++ 18, which the
 NDK ships through r27, has no `std::atomic_ref`**. The library failed to

@@ -216,3 +216,12 @@ planned. The opt-in per-record header-and-payload CRC mode
 `docs/architecture.md` already names remains a separate, unbuilt design
 with its own cost/benefit argument this document does not make on its
 behalf.
+
+## Update: cost on a microcontroller
+
+Measured after integration (`embedded.md`, "Cortex-M"): the bit-by-bit
+CRC-32 made a Cortex-M4 chunk claim 13× more expensive (98 → 1,282
+instructions at `-Os`), and firmware claims often. `wire::crc32` now works
+half a byte at a time through a 16-entry table: 64 bytes of flash, 407
+instructions per claim, identical output (pinned by the standard check
+vector and by comparison with an independent bit-by-bit reference).

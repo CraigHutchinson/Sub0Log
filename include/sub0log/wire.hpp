@@ -17,6 +17,7 @@
  */
 
 #include <bit>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -303,31 +304,43 @@ inline constexpr std::uint32_t cNextChunkOffset = 128u;
 inline constexpr std::uint32_t cCompactSegmentHeaderBytes = cNextChunkOffset + 64u;
 static_assert(cCompactSegmentHeaderBytes % 64u == 0u);
 
+/// The CRC-32 nibble table: the 16 remainders of 0..15 under the reflected
+/// polynomial. 64 bytes of read-only data, computed at compile time.
+inline constexpr auto cCrc32NibbleTable = [] {
+    std::array<std::uint32_t, 16> table{};
+    for (std::uint32_t n = 0; n < 16u; ++n) {
+        std::uint32_t crc = n;
+        for (int bit = 0; bit < 4; ++bit) {
+            crc = (crc & 1u) != 0u ? (crc >> 1u) ^ 0xEDB88320u : crc >> 1u;
+        }
+        table[n] = crc;
+    }
+    return table;
+}();
+
 /// Standard CRC-32 (ISO 3309 / zlib's polynomial, 0xEDB88320), incremental in
 /// the same shape zlib's own `crc32()` is: the value returned from one call
 /// feeds the next as `crc`, starting from 0, and the caller never sees the
 /// bit-complemented internal state -- ~~x == x makes that chaining sound.
-/// Bit-by-bit rather than table-driven: this runs at most once per
-/// `Segment::claimChunk()` (docs/vnext-header-checksum.md), not per record,
-/// so a 256-entry table would trade static data for a saving nothing on
-/// this path needs. CRC-32 (not -32C, and not a keyed hash) matches the
-/// threat model surveyed in `docs/framing-and-recovery.md` -- burst/bit-flip
-/// corruption of an otherwise-legible header, the same reason LevelDB,
-/// TFRecord and Kafka each checksum a header with a CRC rather than a
-/// cryptographic hash.
+/// Runs once per `Segment::claimChunk()` (docs/vnext-header-checksum.md),
+/// not per record -- but a claim is on the producer's cold path, and on a
+/// microcontroller with small chunks it is not rare. Bit-by-bit cost 1282
+/// instructions per claim on a Cortex-M4 against 98 without a checksum
+/// (docs/embedded.md); a 256-entry table would be 1 KiB of flash. Half a
+/// byte at a time through a 16-entry table is the trade between them: 64
+/// bytes, two lookups per byte. CRC-32 (not -32C, and not a keyed hash)
+/// matches the threat model surveyed in `docs/framing-and-recovery.md` --
+/// burst/bit-flip corruption of an otherwise-legible header, the same reason
+/// LevelDB, TFRecord and Kafka each checksum a header with a CRC rather than
+/// a cryptographic hash.
 [[nodiscard]] constexpr std::uint32_t crc32(std::uint32_t crc, const std::byte* const data,
                                             const std::size_t len) noexcept
 {
     crc = ~crc;
     for (std::size_t i = 0u; i < len; ++i) {
         crc ^= static_cast<std::uint8_t>(data[i]);
-        for (int bit = 0; bit < 8; ++bit) {
-            const bool lsbSet = (crc & 1u) != 0u;
-            crc >>= 1u;
-            if (lsbSet) {
-                crc ^= 0xEDB88320u;
-            }
-        }
+        crc = (crc >> 4u) ^ cCrc32NibbleTable[crc & 0xFu];
+        crc = (crc >> 4u) ^ cCrc32NibbleTable[crc & 0xFu];
     }
     return ~crc;
 }

@@ -88,6 +88,61 @@ target_compile_features(Sub0Log INTERFACE cxx_std_23)
 target_compile_options(Sub0Log INTERFACE
     $<$<CXX_COMPILER_ID:MSVC>:/Zc:preprocessor>)
 
+# libatomic, only where the toolchain needs it. The producer path uses
+# only atomics the target does lock-free (include/sub0log/detail/atomics.hpp
+# picks 64-bit or the split 32-bit protocol accordingly), but a compiler may
+# still lower an atomic operation to an out-of-line __atomic_* call --
+# 32-bit Android ABIs and other 32-bit GCC/Clang targets are where this
+# happens -- and those live in libatomic, which nothing links by default.
+# Probed rather than assumed: compile and link the library's own atomic
+# operations; if that fails, try again with libatomic and, if that works,
+# hand it to every consumer on Sub0Log::Sub0Log's link interface. MSVC has
+# no libatomic and needs none.
+if(NOT MSVC)
+    include(CheckCXXSourceCompiles)
+    include(CMakePushCheckState)
+    set(_sub0log_atomic_probe [=[
+#include <sub0log/detail/atomics.hpp>
+#include <sub0log/site.hpp>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+alignas(8) static std::byte gWords[16];
+int main()
+{
+    sub0log::detail::storeHeadWord(gWords, 1u);
+    const std::uint32_t claimed = sub0log::detail::claimChunkIndex(gWords + 8, 4u);
+    sub0log::detail::RelaxedCounter counter;
+    counter.increment();
+    std::atomic<sub0log::detail::AnnounceWord> key{0};
+    key.store(claimed + 1u, std::memory_order_relaxed);
+    return static_cast<int>(sub0log::detail::loadHeadWord(gWords) + counter.load()
+                            + key.load(std::memory_order_relaxed)
+                            + sub0log::detail::loadClaimedChunks(gWords + 8, 4u));
+}
+]=])
+    cmake_push_check_state(RESET)
+    set(CMAKE_REQUIRED_INCLUDES "${CMAKE_CURRENT_SOURCE_DIR}/include")
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX23_STANDARD_COMPILE_OPTION}")
+    set(CMAKE_REQUIRED_QUIET ON)
+    check_cxx_source_compiles("${_sub0log_atomic_probe}" SUB0LOG_ATOMICS_LINK_WITHOUT_LIBATOMIC)
+    if(NOT SUB0LOG_ATOMICS_LINK_WITHOUT_LIBATOMIC)
+        set(CMAKE_REQUIRED_LIBRARIES atomic)
+        check_cxx_source_compiles("${_sub0log_atomic_probe}" SUB0LOG_ATOMICS_LINK_WITH_LIBATOMIC)
+        if(SUB0LOG_ATOMICS_LINK_WITH_LIBATOMIC)
+            message(STATUS "Sub0Log: this toolchain lowers atomics to libatomic calls -- linking it")
+            target_link_libraries(Sub0Log INTERFACE atomic)
+        else()
+            message(WARNING
+                "Sub0Log: the atomic-operations probe does not link, with or without "
+                "libatomic. Consumers will fail to link with undefined __atomic_* symbols; "
+                "see CMakeFiles/CMakeConfigureLog.yaml for the probe's error.")
+        endif()
+    endif()
+    cmake_pop_check_state()
+    unset(_sub0log_atomic_probe)
+endif()
+
 if((SUB0LOG_BUILD_TESTING OR SUB0LOG_BUILD_BENCHMARKS)
    AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake")
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/CPM.cmake)

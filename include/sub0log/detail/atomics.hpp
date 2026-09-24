@@ -176,24 +176,25 @@ inline void storeHeadWord(std::byte* const slot, const std::uint64_t word) noexc
  *  commit's release).
  *
  *  Plain loads plus a fence, as the reader always used: it reads images
- *  that may be const, file-backed copies, or a live segment, and an image
- *  is not an atomic object. On the split path the halves are read tag
- *  first, because an unordered 8-byte read on a 32-bit core can pair a new
- *  tag with a stale length -- a record that looks committed and is not.
+ *  that may be const, unaligned, file-backed copies, or a live segment, and
+ *  an image is not an atomic object. The halves are read tag first on
+ *  *every* path, not only the split one: a plain 8-byte read is not
+ *  single-copy atomic on a 32-bit core even when the writer's 64-bit store
+ *  is (armv7-a's STREXD, Android armeabi-v7a), so reading the word whole
+ *  can pair a new tag with a stale length -- a record that looks committed
+ *  and is not. Found by running the publish test under qemu-arm. Reading
+ *  the tag half first is correct for both writers: once the tag is visible
+ *  the store that carried it has happened, so the length read after the
+ *  acquire is that store's. `Split` is kept for symmetry with the other
+ *  operations; both instantiations are the same code.
  */
 template <bool Split = cSplitAtomics>
 [[nodiscard]] inline std::uint64_t loadHeadWord(const std::byte* const slot) noexcept
 {
-    if constexpr (Split) {
-        const std::uint32_t high = wire::loadUnaligned<std::uint32_t>(slot + 4);
-        std::atomic_thread_fence(std::memory_order_acquire);
-        const std::uint32_t low = wire::loadUnaligned<std::uint32_t>(slot);
-        return (static_cast<std::uint64_t>(high) << 32u) | low;
-    } else {
-        const std::uint64_t word = wire::loadUnaligned<std::uint64_t>(slot);
-        std::atomic_thread_fence(std::memory_order_acquire);
-        return word;
-    }
+    const std::uint32_t high = wire::loadUnaligned<std::uint32_t>(slot + 4);
+    std::atomic_thread_fence(std::memory_order_acquire);
+    const std::uint32_t low = wire::loadUnaligned<std::uint32_t>(slot);
+    return (static_cast<std::uint64_t>(high) << 32u) | low;
 }
 
 /// Claims the next chunk index from the cursor at `cursor`, or returns

@@ -269,6 +269,37 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  linux-armv7-qemu:
+    # The whole suite as 32-bit ARM (armv7-a hard-float, the ISA of Android
+    # armeabi-v7a), cross-compiled and run under qemu-arm. A core with
+    # lock-free 64-bit atomics (LDREXD/STREXD) but no single-copy-atomic
+    # plain 8-byte load: the first run of this found the reader pairing a
+    # new commit tag with a stale length on the 64-bit path (72 torn records
+    # in 20,000; detail::loadHeadWord now reads tag-first on every path).
+    # The three system tests that exec sub0log-cat as a subprocess are
+    # excluded: exec'ing an ARM binary needs binfmt_misc, and they test the
+    # tool's command line, which every native job already covers.
+    name: linux-armv7-qemu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build g++-arm-linux-gnueabihf qemu-user
+      - name: Configure
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm
+          -DCMAKE_C_COMPILER=arm-linux-gnueabihf-gcc
+          -DCMAKE_CXX_COMPILER=arm-linux-gnueabihf-g++
+          "-DCMAKE_CROSSCOMPILING_EMULATOR=qemu-arm;-L;/usr/arm-linux-gnueabihf"
+          -DSUB0LOG_TEST_QT=OFF
+      - name: Build
+        run: cmake --build build
+      - name: Test (under qemu-arm)
+        run: >
+          ctest --test-dir build --output-on-failure -j4 --timeout 1800
+          -E "sub0log-cat (renders|says so|--follow)"
+
   android-lifecycle:
     # Issue #2: Android pause/resume/termination established by a test. A
     # NativeActivity (tests/android/lifecycle.cpp) built with the runner's
@@ -292,8 +323,8 @@ jobs:
         run: |
           cmake -S . -B build-host -G Ninja -DCMAKE_BUILD_TYPE=Release -DSUB0LOG_BUILD_TESTING=OFF
           cmake --build build-host --target sub0log-cat
-      - name: Build the APK
-        run: sh tests/android/build_apk.sh "$PWD" "$PWD/build-android" x86_64
+      - name: Build the APK (all four ABIs, universal)
+        run: sh tests/android/build_apk.sh "$PWD" "$PWD/build-android"
       - name: Run on the emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
