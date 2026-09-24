@@ -78,7 +78,18 @@ int main(const int argc, char** const argv)
         return 2;
     }
 
+    // Two windows, not one: creation and the emit path. The emit path must
+    // never allocate, anywhere. Creation must not either -- except under
+    // MSVC's iterator debugging (_ITERATOR_DEBUG_LEVEL > 0, the Debug
+    // default), where every std::string constructed or moved heap-allocates
+    // a debug "container proxy". Logger::Options and the segment's path are
+    // std::string (docs/embedded.md, item 2), so a Debug MSVC build counts
+    // those proxies there; they are the STL's checking, not the producer,
+    // and a Release build has none. Reported either way, failed only where
+    // it is the library's own allocation.
     const std::uint64_t before = gAllocations.load(std::memory_order_relaxed);
+    std::uint64_t createAllocations = 0;
+    std::uint64_t emitAllocations = 0;
     sub0log::Logger::Stats stats{};
     bool valid = false;
     bool pathEmpty = false;
@@ -91,6 +102,8 @@ int main(const int argc, char** const argv)
         auto logger = sub0log::Logger::createInMemory(gStorage, options);
         valid = logger.valid();
         pathEmpty = logger.segmentPath().empty();
+        const std::uint64_t afterCreate = gAllocations.load(std::memory_order_relaxed);
+        createAllocations = afterCreate - before;
         {
             sub0log::Logger::ScopedBind bind{logger};
             sub0log_info(cSensor, "embedded sample {} of {}", std::uint32_t{3},
@@ -101,12 +114,21 @@ int main(const int argc, char** const argv)
             }
         }
         stats = logger.stats();
+        emitAllocations = gAllocations.load(std::memory_order_relaxed) - afterCreate;
     }
-    const std::uint64_t allocations = gAllocations.load(std::memory_order_relaxed) - before;
 
-    std::printf("embedded producer: valid=%d path-empty=%d heap-allocations=%llu "
-                "dropped=%llu sizeof(Logger)=%zu storage=%zu\n",
-                valid ? 1 : 0, pathEmpty ? 1 : 0, static_cast<unsigned long long>(allocations),
+#if defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL > 0
+    constexpr bool cStlDebugProxies = true;
+#else
+    constexpr bool cStlDebugProxies = false;
+#endif
+
+    std::printf("embedded producer: valid=%d path-empty=%d heap-allocations: create=%llu%s "
+                "emit=%llu dropped=%llu sizeof(Logger)=%zu storage=%zu\n",
+                valid ? 1 : 0, pathEmpty ? 1 : 0,
+                static_cast<unsigned long long>(createAllocations),
+                cStlDebugProxies ? " (MSVC debug-iterator proxies)" : "",
+                static_cast<unsigned long long>(emitAllocations),
                 static_cast<unsigned long long>(stats.droppedRecords_), sizeof(sub0log::Logger),
                 cStorageBytes);
 
@@ -119,9 +141,14 @@ int main(const int argc, char** const argv)
         std::fprintf(stderr, "FAILED: an in-memory Logger reported a file path\n");
         ++failures;
     }
-    if (allocations != 0u) {
-        std::fprintf(stderr, "FAILED: the in-memory producer path allocated %llu times\n",
-                     static_cast<unsigned long long>(allocations));
+    if (emitAllocations != 0u) {
+        std::fprintf(stderr, "FAILED: the in-memory emit path allocated %llu times\n",
+                     static_cast<unsigned long long>(emitAllocations));
+        ++failures;
+    }
+    if (createAllocations != 0u && !cStlDebugProxies) {
+        std::fprintf(stderr, "FAILED: createInMemory allocated %llu times\n",
+                     static_cast<unsigned long long>(createAllocations));
         ++failures;
     }
     if (stats.droppedRecords_ == 0u) {
