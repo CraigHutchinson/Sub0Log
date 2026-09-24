@@ -11,7 +11,10 @@
 #      created in run 2.
 #   4. Termination gave no callback: no DESTROY and no loop exit was
 #      recorded, in either run -- the app never got to say goodbye.
-#   5. The file segment kept records written after the last hand-off: its
+#   5. Nothing was dropped by either backend up to run 1's last pause (each
+#      pause record carries both Loggers' drop counters), so nothing below
+#      can be explained by a full buffer.
+#   6. The file segment kept records written after the last hand-off: its
 #      last run-1 tick is later than the last tick in run 1's final
 #      in-memory dump. Those records existed only in process memory for the
 #      in-memory backend, and the kill took them.
@@ -38,6 +41,11 @@ last_dump=$(ls "$dir"/memory-run1-pause*.s0l | sort -V | tail -1)
 [ -n "$last_dump" ] || fail "no in-memory dump from run 1"
 "$cat_tool" "$last_dump" > "$dir/memory.txt" || fail "sub0log-cat on $last_dump"
 grep -q 'pause run 1' "$dir/memory.txt" || fail "the in-memory dump lacks its own pause record"
+
+# Every pause record, in both backends, must report zero drops in both.
+for f in "$dir/file.txt" "$dir/memory.txt"; do
+    grep 'pause run ' "$f" | grep -v -q 'dropped file 0 memory 0$' && fail "a pause record in $(basename "$f") reports drops: $(grep 'pause run ' "$f" | grep -v 'dropped file 0 memory 0$' | head -1)"
+done
 
 max_tick() { grep -o 'tick run 1 [0-9]*' "$1" | awk '{print $4}' | sort -n | tail -1; }
 file_last=$(max_tick "$dir/file.txt")

@@ -428,6 +428,17 @@ The same checker was first run on the host, against the real
 `lifecycle.cpp` with Android's looper stubbed to replay the lifecycle and
 SIGKILL itself, before being pointed at the emulator.
 
+Writing it exposed a cost worth knowing about. A thread caches one chunk for
+one Logger at a time, so a thread that alternates between two Loggers, as
+the test does to write every record to both backends, **claims a fresh
+chunk on every switch**. The first version of the test filled both segments
+within seconds; code review caught it before CI did, and the host
+simulation reproduced it at emulator-length timelines. The test now sizes
+for it: small chunks, many of them, and every pause record carries both
+drop counters so the checker can rule out a full buffer. Per-call-site
+channels (`vnext-backends-and-memory.md` step 2) will need a writer cache
+that holds more than one Logger's chunk.
+
 Building for Android also exposed a hard blocker: **libc++ 18, which the
 NDK ships through r27, has no `std::atomic_ref`**. The library failed to
 build against it with 440 errors. `detail::AtomicRef` now falls back to the

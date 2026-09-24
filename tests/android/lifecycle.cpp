@@ -15,7 +15,16 @@
 //     without any further callback.
 //
 // Records: "created", every RESUME/PAUSE/STOP/DESTROY callback, and a
-// heartbeat tick whenever the looper is idle for 20 ms. The driver then
+// heartbeat tick whenever the looper is idle for 100 ms. Every pause record
+// carries both Loggers' drop counters, so the checker can rule out "the
+// buffer was full" as the reason anything is missing.
+//
+// Sizing, and why it is generous: a thread holds one cached chunk, for one
+// Logger at a time (Logger::currentWriter). Alternating two Loggers on one
+// thread, as both() does, therefore claims a fresh chunk in each segment on
+// every switch -- one chunk per record. Hence small chunks and many of them:
+// 1 KiB chunks in the 8 MiB file segment (~8000), 256-byte chunks in a
+// 1 MiB buffer (~4000), against ~10 ticks a second. The driver then
 // force-stops the app (SIGKILL, what the system does to a background app
 // under memory pressure) and checks what survived.
 
@@ -36,7 +45,7 @@ namespace {
 
 constexpr sub0log::SubsystemId cApp{1};
 
-alignas(8) std::byte gMemory[256u * 1024u];
+alignas(8) std::byte gMemory[1024u * 1024u];
 
 struct State {
     sub0log::Logger* file = nullptr;
@@ -106,7 +115,9 @@ void onAppCmd(android_app* const app, const std::int32_t cmd)
     case APP_CMD_PAUSE:
         ++state.pauses;
         both(state, [&] {
-            sub0log_info(cApp, "pause run {} n {} tick {}", state.run, state.pauses, state.tick);
+            sub0log_info(cApp, "pause run {} n {} tick {} dropped file {} memory {}", state.run,
+                         state.pauses, state.tick, state.file->stats().droppedRecords_,
+                         state.memory->stats().droppedRecords_);
         });
         dumpMemory(state);
         break;
@@ -126,13 +137,22 @@ void onAppCmd(android_app* const app, const std::int32_t cmd)
 void android_main(android_app* const app)
 {
     State state;
-    state.dir = app->activity->internalDataPath != nullptr ? app->activity->internalDataPath : "";
+    if (app->activity->internalDataPath == nullptr || *app->activity->internalDataPath == '\0') {
+        // Nothing to write to; say so where the driver's logcat dump shows it.
+        __android_log_print(ANDROID_LOG_INFO, "sub0log", "no internalDataPath: nothing logged");
+        return;
+    }
+    state.dir = app->activity->internalDataPath;
     ::mkdir(state.dir.c_str(), 0700);
     state.run = nextRun(state.dir);
 
-    auto file = sub0log::Logger::create({.directory_ = state.dir, .stem_ = "lifecycle"});
+    sub0log::Logger::Options fileOptions{};
+    fileOptions.directory_ = state.dir;
+    fileOptions.stem_ = "lifecycle";
+    fileOptions.segment_.chunkBytes_ = 1024u;
+    auto file = sub0log::Logger::create(fileOptions);
     sub0log::Logger::Options memoryOptions{};
-    memoryOptions.segment_.chunkBytes_ = 4096u;
+    memoryOptions.segment_.chunkBytes_ = 256u;
     auto memory = sub0log::Logger::createInMemory(gMemory, memoryOptions);
     __android_log_print(ANDROID_LOG_INFO, "sub0log", "run %u: file valid=%d (%s) memory valid=%d",
                         state.run, file.valid() ? 1 : 0, file.segmentPath().c_str(),
@@ -149,7 +169,7 @@ void android_main(android_app* const app)
         int events = 0;
         android_poll_source* source = nullptr;
         const int result =
-            ALooper_pollOnce(20, nullptr, &events, reinterpret_cast<void**>(&source));
+            ALooper_pollOnce(100, nullptr, &events, reinterpret_cast<void**>(&source));
         if (result >= 0 && source != nullptr) {
             source->process(app, source);
         } else if (result == ALOOPER_POLL_TIMEOUT) {

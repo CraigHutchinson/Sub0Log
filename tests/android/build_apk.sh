@@ -8,14 +8,16 @@
 # (ANDROID_NDK_LATEST_HOME or ANDROID_NDK_HOME), keytool, zip, cmake, ninja.
 # GitHub's ubuntu runners have all of them preinstalled.
 set -eu
-root=$1; out=$2; abi=${3:-x86_64}
+abi=${3:-x86_64}
+# Absolute paths: the zip step below runs from inside the staging directory.
+root=$(cd "$1" && pwd)
+mkdir -p "$2" && out=$(cd "$2" && pwd)
 
 ndk=${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:?need an NDK}}
 build_tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
 platform=$(ls -d "$ANDROID_HOME"/platforms/android-* | sort -V | tail -1)
 echo "ndk: $ndk"; echo "build-tools: $build_tools"; echo "platform: $platform"
 
-mkdir -p "$out"
 cmake -S "$root/tests/android" -B "$out/native" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
     -DANDROID_ABI="$abi" -DANDROID_PLATFORM=android-26 -DCMAKE_BUILD_TYPE=Release

@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <deque>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -82,6 +83,14 @@ public:
     /// holds at most one chunk, so rotating with one left can never drop.
     void rotateIfNearlyFull()
     {
+        // An invalid Logger (disk full, directory gone) reports 0 of 0
+        // chunks, which would read as "full" on every call. Its emits are
+        // already counted as drops (R9.1); rotating would only retry the
+        // same failing create once per record. valid() is the signal to
+        // alert on instead.
+        if (!current_->valid()) {
+            return;
+        }
         const auto usage = current_->usage();
         if (usage.chunksClaimed_ + 1u >= usage.chunkCount_) {
             rotate("watermark");
@@ -141,18 +150,15 @@ private:
             std::fprintf(stderr, "hand-off failed: %s\n", ec.message().c_str());
             return;
         }
-        // Step 4: retention. Oldest first by name is not creation order
-        // (names carry a random generation), so order by write time.
-        std::vector<std::filesystem::directory_entry> kept;
-        for (const auto& entry : std::filesystem::directory_iterator(outbox_)) {
-            kept.push_back(entry);
-        }
-        std::sort(kept.begin(), kept.end(), [](const auto& a, const auto& b) {
-            return a.last_write_time() < b.last_write_time();
-        });
-        while (kept.size() > keep_) {
-            std::filesystem::remove(kept.front().path(), ec);
-            kept.erase(kept.begin());
+        // Step 4: retention, oldest first. The rotator records hand-off
+        // order itself rather than asking the filesystem: file names carry a
+        // random generation, and modification times can tie (segments
+        // rotated within one timestamp tick), either of which could evict a
+        // newer segment than intended. O(1) per hand-off, no directory scan.
+        handedOff_.push_back(outbox_ / finished.filename());
+        while (handedOff_.size() > keep_) {
+            std::filesystem::remove(handedOff_.front(), ec);
+            handedOff_.pop_front();
             ++evicted_;
         }
     }
@@ -160,6 +166,7 @@ private:
     std::filesystem::path live_;
     std::filesystem::path outbox_;
     std::size_t keep_;
+    std::deque<std::filesystem::path> handedOff_; ///< Outbox contents, oldest first.
     std::unique_ptr<sub0log::Logger> current_;
     std::optional<sub0log::Logger::ScopedBind> bind_;
     int rotations_ = 0;
@@ -259,14 +266,25 @@ int main()
         rotator.close();
         evictedWithRetention = rotator.evicted();
     }
-    for ([[maybe_unused]] const auto& entry :
-         std::filesystem::directory_iterator(root / "outbox")) {
+    // "Keep the newest N" checked, not assumed: the survivors must hold the
+    // session's last events, including the very last one.
+    bool newestKept = false;
+    sub0log::Merger retained;
+    std::vector<std::vector<std::byte>> retainedImages;
+    for (const auto& entry : std::filesystem::directory_iterator(root / "outbox")) {
         ++outboxAfterRetention;
+        retainedImages.push_back(slurp(entry.path()));
+    }
+    for (const auto& image : retainedImages) {
+        (void)retained.addSegment(image);
+    }
+    for (const auto& record : retained.merged()) {
+        newestKept = newestKept || std::get<std::uint64_t>(record.record_.args_[0]) == cEvents - 1;
     }
     std::filesystem::remove_all(root, ec);
-    std::printf("retention keep=3: outbox=%zu evicted=%llu\n", outboxAfterRetention,
-                static_cast<unsigned long long>(evictedWithRetention));
-    if (outboxAfterRetention != 3 || evictedWithRetention == 0) {
+    std::printf("retention keep=3: outbox=%zu evicted=%llu newest kept=%s\n", outboxAfterRetention,
+                static_cast<unsigned long long>(evictedWithRetention), newestKept ? "yes" : "no");
+    if (outboxAfterRetention != 3 || evictedWithRetention == 0 || !newestKept) {
         std::fprintf(stderr, "retention did not bound the outbox\n");
         return 1;
     }
