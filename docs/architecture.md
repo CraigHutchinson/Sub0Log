@@ -327,8 +327,8 @@ now also calls, so the two paths share one record layout rather than two);
 `emit` writes a Message from the plugin's pre-encoded payload through
 `detail::reserveRecord`, stamping time and correlation the same way
 `detail::emitRecord` does. A plugin's call site has no SiteDescriptor to hang
-`announcedKey_` off (site.hpp, a per-segment u32 key since the Cortex-M
-work in `embedded.md`), so the host tracks, in a table keyed
+`announcedKey_` off (site.hpp: the segment generation, or a per-segment
+u32 key on cores without 64-bit atomics -- `embedded.md`), so the host tracks, in a table keyed
 on the plugin's site id, which segment generation last received that site's
 definition; `emit` refuses (and counts, R9.1) a Message for a site this
 segment was never told about, rather than trust the plugin re-announced in

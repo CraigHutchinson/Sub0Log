@@ -34,6 +34,7 @@
  *  segment's anchor pair, never compared to std::chrono::steady_clock.
  */
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -580,7 +581,18 @@ inline FileMapping FileMapping::openReadOnly(const std::string& path) noexcept
     // depends on it being unpredictable. Mixing the two clocks, the process
     // id and this call's own stack address through splitmix64 gives that,
     // for the cost of a few multiplies.
-    std::uint64_t value = 0;
+    //
+    // Plus a per-process call counter, because the other inputs can repeat:
+    // under SUB0LOG_PLATFORM_CUSTOM the clocks may be a coarse RTOS tick and
+    // the pid a constant, so two segments created within one tick from the
+    // same stack depth -- an A/B drain recreating its Logger -- would get the
+    // same generation, and a thread's cached writer (keyed on it) would be
+    // reused into memory that was just zeroed. With the counter, consecutive
+    // generations in one process differ whatever the clocks do: every other
+    // input equal, distinct counts times an odd constant are distinct.
+    static constinit std::atomic<std::uint32_t> sCalls{0};
+    const std::uint32_t call = sCalls.fetch_add(1u, std::memory_order_relaxed) + 1u;
+    std::uint64_t value = static_cast<std::uint64_t>(call) * 0xA24BAED4963EE407ull;
     const auto stackNoise = reinterpret_cast<std::uintptr_t>(&value);
     value ^= static_cast<std::uint64_t>(stackNoise) * 0xD6E8FEB86659FD93ull;
     value ^= monotonicNowNs() * 0x9E3779B97F4A7C15ull;

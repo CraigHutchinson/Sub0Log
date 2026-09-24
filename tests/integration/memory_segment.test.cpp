@@ -181,6 +181,9 @@ TEST_CASE("moving an in-memory Logger leaves exactly one owner of the buffer")
     auto second = std::move(first);
     CHECK(second.valid());
     CHECK_FALSE(first.valid()); // NOLINT(bugprone-use-after-move): the point of the test
+    CHECK(first.usage().chunkCount_ == 0); // NOLINT(bugprone-use-after-move)
+    CHECK(first.usage().chunksClaimed_ == 0); // NOLINT(bugprone-use-after-move)
+    CHECK(second.usage().chunkCount_ > 0);
 }
 
 TEST_CASE("usage() reports chunks claimed, clamped at the segment's total")
