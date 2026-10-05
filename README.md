@@ -14,11 +14,30 @@ on every push to `main`. They read "unknown" until that job has run once.
 
 ```cpp
 #include <sub0log/log.hpp>
+#include <cstdint>
+#include <filesystem>
 
-sub0log_debug(Storage, "read {} at {} for {} bytes", blobId, offset, length);
+int main()
+{
+    std::filesystem::create_directories("logs");
+    constexpr sub0log::SubsystemId cStorage{3};
+    sub0log::Logger::Options options{};
+    options.directory_ = "logs";
+    auto logger = sub0log::Logger::create(options);
+    if (!logger.valid()) {
+        return 1;
+    }
+    const sub0log::Logger::ScopedBind bind{logger};
+    sub0log_info(cStorage, "read {} at {} for {} bytes",
+                 std::uint64_t{42}, std::uint64_t{0}, std::uint32_t{128});
+}
 ```
 
-Nothing above formats a string, allocates, or takes a lock. The format text,
+Run this program, then `sub0log-cat logs` to see `read 42 at 0 for 128 bytes`,
+or `sub0log-cat --format jsonl logs` for typed machine records.
+
+The logging call formats no string, allocates nothing, and takes no lock;
+logger creation is startup work and can allocate. The format text,
 file, line, subsystem, severity and argument types live in a descriptor emitted
 once per call site; the record carries the raw argument bytes and a reference to
 that descriptor. Text is produced later, by whoever wants text -- and in a
@@ -235,6 +254,22 @@ A directory argument means every `*.s0l` inside it, and several segments are
 merged onto one timeline -- which is how a group of processes is meant to be
 read. Filtering is on the fields a record actually carries (severity,
 subsystem, correlation), never a text search of the rendered message.
+
+- **Human text:** `sub0log-cat --format text ./logs`; text is the default.
+- **Machine snapshot:** `sub0log-cat --format jsonl --stats ./logs > records.jsonl`
+  writes one schema-1 JSON message per line. Existing field filters work in both formats.
+- **Typed values:** original wire TypeCodes accompany arguments; integers/IDs/times
+  use decimal strings, nonfinite floats use explicit tokens, Bytes/Char use hex.
+  Text metadata uses valid UTF-8 or a lossless hex fallback.
+- **Receiving workflow:** run the Python standard-library parser recipe in
+  [JSON export](docs/json-export.md) first, then review the equivalent text output.
+- **Follow limits:** text `--follow` polls, but late earlier records can be skipped
+  or repeated by its merged-count cursor. JSONL `--follow` is rejected until stable
+  provenance/cursors support reliable machine waiting ([#14](https://github.com/CraigHutchinson/Sub0Log/issues/14)).
+- **Health/errors:** `--stats` stays on stderr; offline producer drops are unknown.
+  Exit 0 means at least one readable segment, not completeness; 1 reports no readable
+  input or detected JSON output failure, and 2 invalid usage. Inspect stderr for
+  skipped/damaged inputs; details and ownership limits are in the export guide.
 
 As many readers as you like, at once, on a live segment -- another
 `sub0log-cat --follow`, a tailer like `examples/07_live_tail.cpp`, your own

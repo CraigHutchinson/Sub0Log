@@ -1,0 +1,315 @@
+Test project D:/Craig/GitHub/Sub0Log/.worktrees/agentic-json-receiving/build/debug
+        Start   1: unit::SiteAnnounceTable finds every site it successfully recorded
+  1/151 Test   #1: unit::SiteAnnounceTable finds every site it successfully recorded .............................................................................   Passed    0.01 sec
+        Start   2: unit::a site never recorded reads as generation 0, not a stale collision
+  2/151 Test   #2: unit::a site never recorded reads as generation 0, not a stale collision ......................................................................   Passed    0.01 sec
+        Start   3: unit::more distinct sites than the table holds is counted, not lost silently
+  3/151 Test   #3: unit::more distinct sites than the table holds is counted, not lost silently ..................................................................   Passed    0.01 sec
+        Start   4: unit::a split commit writes exactly the bytes a 64-bit commit writes
+  4/151 Test   #4: unit::a split commit writes exactly the bytes a 64-bit commit writes ..........................................................................   Passed    0.01 sec
+        Start   5: unit::the commit tag lives entirely in the half the split path stores last
+  5/151 Test   #5: unit::the commit tag lives entirely in the half the split path stores last ....................................................................   Passed    0.01 sec
+        Start   6: unit::a bounded split claim stops at the chunk count and leaves the high half zero
+  6/151 Test   #6: unit::a bounded split claim stops at the chunk count and leaves the high half zero ............................................................   Passed    0.01 sec
+        Start   7: unit::concurrent claims hand out every chunk exactly once (split path)
+  7/151 Test   #7: unit::concurrent claims hand out every chunk exactly once (split path) ........................................................................   Passed    0.01 sec
+        Start   8: unit::concurrent claims hand out every chunk exactly once (64-bit path)
+  8/151 Test   #8: unit::concurrent claims hand out every chunk exactly once (64-bit path) .......................................................................   Passed    0.01 sec
+        Start   9: unit::a reader never sees a committed tag without its record (split path)
+  9/151 Test   #9: unit::a reader never sees a committed tag without its record (split path) .....................................................................   Passed    0.02 sec
+        Start  10: unit::a reader never sees a committed tag without its record (64-bit path)
+ 10/151 Test  #10: unit::a reader never sees a committed tag without its record (64-bit path) ....................................................................   Passed    0.02 sec
+        Start  11: unit::RelaxedCounter reads as u64 on every path, and wraps only where documented
+ 11/151 Test  #11: unit::RelaxedCounter reads as u64 on every path, and wraps only where documented ..............................................................   Passed    0.01 sec
+        Start  12: unit::CorrelationScope sets and restores this thread's id, nesting correctly
+ 12/151 Test  #12: unit::CorrelationScope sets and restores this thread's id, nesting correctly ..................................................................   Passed    0.01 sec
+        Start  13: unit::two default-constructed scopes never collide in a small sample
+ 13/151 Test  #13: unit::two default-constructed scopes never collide in a small sample ..........................................................................   Passed    0.01 sec
+        Start  14: unit::CorrelationScope accepts an explicit id, e.g. recovered from a parent process
+ 14/151 Test  #14: unit::CorrelationScope accepts an explicit id, e.g. recovered from a parent process ...........................................................   Passed    0.01 sec
+        Start  15: unit::correlationFromEnvironment parses, and is 0 on absence or garbage
+ 15/151 Test  #15: unit::correlationFromEnvironment parses, and is 0 on absence or garbage .......................................................................   Passed    0.01 sec
+        Start  16: unit::typeCodeFor maps representative types to their wire codes
+ 16/151 Test  #16: unit::typeCodeFor maps representative types to their wire codes ...............................................................................   Passed    0.01 sec
+        Start  17: unit::encodeArgs packs fixed-size arguments little-endian
+ 17/151 Test  #17: unit::encodeArgs packs fixed-size arguments little-endian .....................................................................................   Passed    0.01 sec
+        Start  18: unit::encodeArgs stores an enum as its underlying type
+ 18/151 Test  #18: unit::encodeArgs stores an enum as its underlying type ........................................................................................   Passed    0.01 sec
+        Start  19: unit::encodeArgs packs a string_view as a u16 length then bytes
+ 19/151 Test  #19: unit::encodeArgs packs a string_view as a u16 length then bytes ...............................................................................   Passed    0.01 sec
+        Start  20: unit::encodeArgs packs a span<const byte> the same way as a string_view
+ 20/151 Test  #20: unit::encodeArgs packs a span<const byte> the same way as a string_view .......................................................................   Passed    0.01 sec
+        Start  21: unit::a const char* argument is measured once by strlen
+ 21/151 Test  #21: unit::a const char* argument is measured once by strlen .......................................................................................   Passed    0.01 sec
+        Start  22: unit:: null is length 0
+ 22/151 Test  #22: unit:: null is length 0 .......................................................................................................................   Passed    0.01 sec
+        Start  23: unit::a std::string lvalue, const lvalue and temporary all encode to the same bytes as the equivalent std::string_view
+ 23/151 Test  #23: unit::a std::string lvalue, const lvalue and temporary all encode to the same bytes as the equivalent std::string_view ........................   Passed    0.01 sec
+        Start  24: unit::a user-defined type with operator std::string_view() const encodes the same way std::string does
+ 24/151 Test  #24: unit::a user-defined type with operator std::string_view() const encodes the same way std::string does ........................................   Passed    0.01 sec
+        Start  25: unit::an empty std::string encodes as a zero length with no bytes following
+ 25/151 Test  #25: unit::an empty std::string encodes as a zero length with no bytes following ...................................................................   Passed    0.01 sec
+        Start  26: unit::encodeArgs truncates a std::string at cInlineBytesCap and flags it, exactly like a string_view (R9.2: a cut is visible, never silent)
+ 26/151 Test  #26: unit::encodeArgs truncates a std::string at cInlineBytesCap and flags it, exactly like a string_view (R9.2: a cut is visible, never silent) ...   Passed    0.01 sec
+        Start  27: unit::encodeArgs truncates a view at cInlineBytesCap and flags it
+ 27/151 Test  #27: unit::encodeArgs truncates a view at cInlineBytesCap and flags it .............................................................................   Passed    0.01 sec
+        Start  28: unit::a pointer occupies eight bytes whatever the target's pointer width is
+ 28/151 Test  #28: unit::a pointer occupies eight bytes whatever the target's pointer width is ...................................................................   Passed    0.01 sec
+        Start  29: unit::encodeArgs round-trips a mix of fixed and variable arguments
+ 29/151 Test  #29: unit::encodeArgs round-trips a mix of fixed and variable arguments ............................................................................   Passed    0.01 sec
+        Start  30: unit::JSON formatter validates borrowed record shape before export
+ 30/151 Test  #30: unit::JSON formatter validates borrowed record shape before export ............................................................................   Passed    0.01 sec
+        Start  31: unit::JSON text fallback rejects invalid UTF8 instead of replacing bytes
+ 31/151 Test  #31: unit::JSON text fallback rejects invalid UTF8 instead of replacing bytes ......................................................................   Passed    0.01 sec
+        Start  32: unit::JSON formatter result owns text after decoder-style borrows change
+ 32/151 Test  #32: unit::JSON formatter result owns text after decoder-style borrows change ......................................................................   Passed    0.01 sec
+        Start  33: unit::toWidePath: empty path converts to an empty wide string, no error
+ 33/151 Test  #33: unit::toWidePath: empty path converts to an empty wide string, no error .......................................................................   Passed    0.01 sec
+        Start  34: unit::toWidePath: an ASCII path round-trips exactly
+ 34/151 Test  #34: unit::toWidePath: an ASCII path round-trips exactly ...........................................................................................   Passed    0.01 sec
+        Start  35: unit::toWidePath: a non-ASCII UTF-8 path converts correctly
+ 35/151 Test  #35: unit::toWidePath: a non-ASCII UTF-8 path converts correctly ...................................................................................   Passed    0.01 sec
+        Start  36: unit::toWidePath: ill-formed UTF-8 fails classified, not mangled
+ 36/151 Test  #36: unit::toWidePath: ill-formed UTF-8 fails classified, not mangled ..............................................................................   Passed    0.01 sec
+        Start  37: unit::record head word round-trips and carries the commit tag
+ 37/151 Test  #37: unit::record head word round-trips and carries the commit tag .................................................................................   Passed    0.01 sec
+        Start  38: unit::a zero word and a torn word are not committed records
+ 38/151 Test  #38: unit::a zero word and a torn word are not committed records ...................................................................................   Passed    0.01 sec
+        Start  39: unit::payload padding keeps records 8-byte aligned
+ 39/151 Test  #39: unit::payload padding keeps records 8-byte aligned ............................................................................................   Passed    0.01 sec
+        Start  40: unit::on-disk struct sizes are pinned
+ 40/151 Test  #40: unit::on-disk struct sizes are pinned .........................................................................................................   Passed    0.01 sec
+        Start  41: unit::chunk size classes round-trip and cover every size this codebase actually uses
+ 41/151 Test  #41: unit::chunk size classes round-trip and cover every size this codebase actually uses ..........................................................   Passed    0.01 sec
+        Start  42: unit::an unrepresentable chunk size has no class, not a wrong one
+ 42/151 Test  #42: unit::an unrepresentable chunk size has no class, not a wrong one .............................................................................   Passed    0.01 sec
+        Start  43: unit::the largest size class is exactly one default segment
+ 43/151 Test  #43: unit::the largest size class is exactly one default segment ...................................................................................   Passed    0.01 sec
+        Start  44: unit::ChunkHeader's size-class field defaults to the unspecified sentinel
+ 44/151 Test  #44: unit::ChunkHeader's size-class field defaults to the unspecified sentinel .....................................................................   Passed    0.01 sec
+        Start  45: unit::ChunkHeader's checksum field defaults to the not-present sentinel
+ 45/151 Test  #45: unit::ChunkHeader's checksum field defaults to the not-present sentinel .......................................................................   Passed    0.01 sec
+        Start  46: unit::crc32 matches the known test vector for "123456789"
+ 46/151 Test  #46: unit::crc32 matches the known test vector for "123456789" .....................................................................................   Passed    0.01 sec
+        Start  47: unit::crc32's nibble table agrees with a bit-by-bit CRC-32 on every length and value
+ 47/151 Test  #47: unit::crc32's nibble table agrees with a bit-by-bit CRC-32 on every length and value ..........................................................   Passed    0.01 sec
+        Start  48: unit::crc32 is chainable: one call over N bytes equals two calls over any split
+ 48/151 Test  #48: unit::crc32 is chainable: one call over N bytes equals two calls over any split ...............................................................   Passed    0.01 sec
+        Start  49: unit::computeChunkHeaderChecksum changes if any checksummed field changes
+ 49/151 Test  #49: unit::computeChunkHeaderChecksum changes if any checksummed field changes .....................................................................   Passed    0.01 sec
+        Start  50: unit::computeChunkHeaderChecksum never returns the 0 sentinel
+ 50/151 Test  #50: unit::computeChunkHeaderChecksum never returns the 0 sentinel .................................................................................   Passed    0.01 sec
+        Start  51: integration::a Bytes argument round-trips whole on both sides of the inline cap
+ 51/151 Test  #51: integration::a Bytes argument round-trips whole on both sides of the inline cap ...............................................................   Passed    2.19 sec
+        Start  52: integration::past the ceiling the cut is still visible, never silent
+ 52/151 Test  #52: integration::past the ceiling the cut is still visible, never silent ..........................................................................   Passed    0.43 sec
+        Start  53: integration::long and short arguments mix in one record without disturbing each other
+ 53/151 Test  #53: integration::long and short arguments mix in one record without disturbing each other .........................................................   Passed    0.42 sec
+        Start  54: integration::a chunk too small for a chain loses bytes, never records
+ 54/151 Test  #54: integration::a chunk too small for a chain loses bytes, never records .........................................................................   Passed    0.02 sec
+        Start  55: integration::an in-memory Logger round-trips typed records through the caller's buffer
+ 55/151 Test  #55: integration::an in-memory Logger round-trips typed records through the caller's buffer ........................................................   Passed    0.01 sec
+        Start  56: integration::an in-memory Logger over a previous run's buffer shows only the new run
+ 56/151 Test  #56: integration::an in-memory Logger over a previous run's buffer shows only the new run ..........................................................   Passed    0.01 sec
+        Start  57: integration::a full in-memory buffer drops and counts, and every record is accounted for
+ 57/151 Test  #57: integration::a full in-memory buffer drops and counts, and every record is accounted for ......................................................   Passed    0.01 sec
+        Start  58: integration::an in-memory Logger refuses storage it cannot use, and says why
+ 58/151 Test  #58: integration::an in-memory Logger refuses storage it cannot use, and says why ..................................................................   Passed    0.01 sec
+        Start  59: integration::moving an in-memory Logger leaves exactly one owner of the buffer
+ 59/151 Test  #59: integration::moving an in-memory Logger leaves exactly one owner of the buffer ................................................................   Passed    0.01 sec
+        Start  60: integration::usage() reports chunks claimed, clamped at the segment's total
+ 60/151 Test  #60: integration::usage() reports chunks claimed, clamped at the segment's total ...................................................................   Passed    0.01 sec
+        Start  61: integration::post-mortem: the previous boot's buffer is read before the next Logger reuses it
+ 61/151 Test  #61: integration::post-mortem: the previous boot's buffer is read before the next Logger reuses it .................................................   Passed    0.01 sec
+        Start  62: integration::A/B in-memory segments drained to a custom sink lose nothing
+ 62/151 Test  #62: integration::A/B in-memory segments drained to a custom sink lose nothing .....................................................................   Passed    0.02 sec
+        Start  63: integration::an in-memory segment's header area is compact, and readers take it from the header
+ 63/151 Test  #63: integration::an in-memory segment's header area is compact, and readers take it from the header ...............................................   Passed    0.01 sec
+        Start  64: integration::segments with different anchor pairs merge into aligned global order
+ 64/151 Test  #64: integration::segments with different anchor pairs merge into aligned global order .............................................................   Passed    0.01 sec
+        Start  65: integration::ties at equal alignedNs break by processId, then ownerThread, then monoNs
+ 65/151 Test  #65: integration::ties at equal alignedNs break by processId, then ownerThread, then monoNs ........................................................   Passed    0.01 sec
+        Start  66: integration::Merger totals sum unreadable bytes and undecodable records across segments
+ 66/151 Test  #66: integration::Merger totals sum unreadable bytes and undecodable records across segments .......................................................   Passed    0.01 sec
+        Start  67: integration::ChunkWriter reserve/commit produces a readable committed record
+ 67/151 Test  #67: integration::ChunkWriter reserve/commit produces a readable committed record ..................................................................   Passed    0.01 sec
+        Start  68: integration:: an uncommitted reservation leaves a zero head word
+ 68/151 Test  #68: integration:: an uncommitted reservation leaves a zero head word ..............................................................................   Passed    0.01 sec
+        Start  69: integration::ChunkWriter.reserve fails, without corrupting state, once the chunk cannot fit
+ 69/151 Test  #69: integration::ChunkWriter.reserve fails, without corrupting state, once the chunk cannot fit ...................................................   Passed    0.01 sec
+        Start  70: integration::Segment::create writes a header whose fields agree with the file it produced
+ 70/151 Test  #70: integration::Segment::create writes a header whose fields agree with the file it produced .....................................................   Passed    0.02 sec
+        Start  71: integration::claimChunk hands out distinct, correctly-stamped chunks and rejects exhaustion
+ 71/151 Test  #71: integration::claimChunk hands out distinct, correctly-stamped chunks and rejects exhaustion ...................................................   Passed    0.02 sec
+        Start  72: integration::Logger + sub0log_info writes a SiteDefinition then a Message a test can verify by hand
+ 72/151 Test  #72: integration::Logger + sub0log_info writes a SiteDefinition then a Message a test can verify by hand ...........................................   Passed    0.01 sec
+        Start  73: integration::Logger counts drops once a tiny segment is exhausted
+ 73/151 Test  #73: integration::Logger counts drops once a tiny segment is exhausted .............................................................................   Passed    0.01 sec
+        Start  74: integration::with no Logger bound, the macro is a no-op and never evaluates its arguments
+ 74/151 Test  #74: integration::with no Logger bound, the macro is a no-op and never evaluates its arguments .....................................................   Passed    0.01 sec
+        Start  75: integration::a segment is readable while its producer still holds it open
+ 75/151 Test  #75: integration::a segment is readable while its producer still holds it open .....................................................................   Passed    0.01 sec
+        Start  76: integration::decoder round-trips typed arguments through a hand-built segment
+ 76/151 Test  #76: integration::decoder round-trips typed arguments through a hand-built segment .................................................................   Passed    0.01 sec
+        Start  77: integration::a zero head word ends the chunk as unwritten space, not as damage
+ 77/151 Test  #77: integration::a zero head word ends the chunk as unwritten space, not as damage ................................................................   Passed    0.01 sec
+        Start  78: integration::a torn head word is damage, and is counted apart from unwritten space
+ 78/151 Test  #78: integration::a torn head word is damage, and is counted apart from unwritten space ............................................................   Passed    0.01 sec
+        Start  79: integration::an oversized payload length is bounds-checked before use, never crashes
+ 79/151 Test  #79: integration::an oversized payload length is bounds-checked before use, never crashes ..........................................................   Passed    0.01 sec
+        Start  80: integration::a chunk from a stale generation is skipped and its body counted
+ 80/151 Test  #80: integration::a chunk from a stale generation is skipped and its body counted ..................................................................   Passed    0.01 sec
+        Start  81: integration::a chunk whose stamped size class agrees with the segment decodes with no extra damage
+ 81/151 Test  #81: integration::a chunk whose stamped size class agrees with the segment decodes with no extra damage ............................................   Passed    0.01 sec
+        Start  82: integration::the unspecified size class (0) is trusted exactly as an old segment always was
+ 82/151 Test  #82: integration::the unspecified size class (0) is trusted exactly as an old segment always was ...................................................   Passed    0.01 sec
+        Start  83: integration::a chunk stamped smaller than the segment default is trusted, not treated as damage
+ 83/151 Test  #83: integration::a chunk stamped smaller than the segment default is trusted, not treated as damage ...............................................   Passed    0.01 sec
+        Start  84: integration::a stamped size class past the format's own ceiling is damage, never decoded into a stride
+ 84/151 Test  #84: integration::a stamped size class past the format's own ceiling is damage, never decoded into a stride ........................................   Passed    0.01 sec
+        Start  85: integration::chunks of genuinely different sizes in one segment decode in order, back to back
+ 85/151 Test  #85: integration::chunks of genuinely different sizes in one segment decode in order, back to back .................................................   Passed    0.01 sec
+        Start  86: integration::a chunk whose header checksum matches decodes with no extra damage
+ 86/151 Test  #86: integration::a chunk whose header checksum matches decodes with no extra damage ...............................................................   Passed    0.01 sec
+        Start  87: integration::a checksum of 0 is trusted exactly as an old segment always was
+ 87/151 Test  #87: integration::a checksum of 0 is trusted exactly as an old segment always was ..................................................................   Passed    0.01 sec
+        Start  88: integration::a header whose bytes disagree with its own stamped checksum is damage
+ 88/151 Test  #88: integration::a header whose bytes disagree with its own stamped checksum is damage ............................................................   Passed    0.01 sec
+        Start  89: integration::a checksum mismatch is caught even when corruption zeroes generation_ itself
+ 89/151 Test  #89: integration::a checksum mismatch is caught even when corruption zeroes generation_ itself .....................................................   Passed    0.01 sec
+        Start  90: integration::a message with no matching site definition is undecodable, others unaffected
+ 90/151 Test  #90: integration::a message with no matching site definition is undecodable, others unaffected .....................................................   Passed    0.01 sec
+        Start  91: integration::a SiteDefinition payload shorter than its own fixed prefix is undecodable
+ 91/151 Test  #91: integration::a SiteDefinition payload shorter than its own fixed prefix is undecodable ........................................................   Passed    0.01 sec
+        Start  92: integration::a SiteDefinition whose argCount lies about the bytes actually present is undecodable
+ 92/151 Test  #92: integration::a SiteDefinition whose argCount lies about the bytes actually present is undecodable .............................................   Passed    0.01 sec
+        Start  93: integration::a SiteDefinition whose formatLen overruns the payload is undecodable
+ 93/151 Test  #93: integration::a SiteDefinition whose formatLen overruns the payload is undecodable .............................................................   Passed    0.01 sec
+        Start  94: integration::a SiteDefinition whose fileLen overruns the payload is undecodable
+ 94/151 Test  #94: integration::a SiteDefinition whose fileLen overruns the payload is undecodable ...............................................................   Passed    0.01 sec
+        Start  95: integration::a SubsystemDefinition shorter than its own fixed prefix is undecodable
+ 95/151 Test  #95: integration::a SubsystemDefinition shorter than its own fixed prefix is undecodable ...........................................................   Passed    0.01 sec
+        Start  96: integration::a SubsystemDefinition whose nameLen overruns the payload is undecodable
+ 96/151 Test  #96: integration::a SubsystemDefinition whose nameLen overruns the payload is undecodable ..........................................................   Passed    0.01 sec
+        Start  97: integration::a Message payload shorter than MessagePayload itself is undecodable
+ 97/151 Test  #97: integration::a Message payload shorter than MessagePayload itself is undecodable ..............................................................   Passed    0.01 sec
+        Start  98: integration::a Message whose Bytes argument length overruns the payload is undecodable
+ 98/151 Test  #98: integration::a Message whose Bytes argument length overruns the payload is undecodable ........................................................   Passed    0.01 sec
+        Start  99: integration::a Message too short for its site's declared fixed argument is undecodable
+ 99/151 Test  #99: integration::a Message too short for its site's declared fixed argument is undecodable ........................................................   Passed    0.01 sec
+        Start 100: integration::a site declaring a type code this decoder does not recognise fails that message safely
+100/151 Test #100: integration::a site declaring a type code this decoder does not recognise fails that message safely ...........................................   Passed    0.01 sec
+        Start 101: integration::a Continuation with no chain open is skipped, not mistaken for anything
+101/151 Test #101: integration::a Continuation with no chain open is skipped, not mistaken for anything ..........................................................   Passed    0.01 sec
+        Start 102: integration::a Continuation payload shorter than ContinuationPayload itself damages its chain
+102/151 Test #102: integration::a Continuation payload shorter than ContinuationPayload itself damages its chain .................................................   Passed    0.01 sec
+        Start 103: integration::a Continuation naming an out-of-range argument index damages its chain
+103/151 Test #103: integration::a Continuation naming an out-of-range argument index damages its chain ...........................................................   Passed    0.01 sec
+        Start 104: integration::a Continuation naming a non-Bytes argument index damages its chain
+104/151 Test #104: integration::a Continuation naming a non-Bytes argument index damages its chain ...............................................................   Passed    0.01 sec
+        Start 105: integration::a chain interrupted by an unrelated record is damaged, but that record still decodes
+105/151 Test #105: integration::a chain interrupted by an unrelated record is damaged, but that record still decodes .............................................   Passed    0.01 sec
+        Start 106: integration::a chain still open at the end of the stream is damaged, not silently dropped
+106/151 Test #106: integration::a chain still open at the end of the stream is damaged, not silently dropped .....................................................   Passed    0.01 sec
+        Start 107: integration::a Message physically preceding its own SiteDefinition still decodes
+107/151 Test #107: integration::a Message physically preceding its own SiteDefinition still decodes ..............................................................   Passed    0.01 sec
+        Start 108: integration::exhaustive single-byte corruption of a small segment never crashes or misaccounts
+108/151 Test #108: integration::exhaustive single-byte corruption of a small segment never crashes or misaccounts ................................................   Passed    0.70 sec
+        Start 109: integration::SegmentReader::open validates size, magic, version and geometry in order
+109/151 Test #109: integration::SegmentReader::open validates size, magic, version and geometry in order .........................................................   Passed    0.01 sec
+        Start 110: integration::format() substitutes placeholders, treats doubled braces as literal, and marks a surplus placeholder
+110/151 Test #110: integration::format() substitutes placeholders, treats doubled braces as literal, and marks a surplus placeholder .............................   Passed    0.01 sec
+        Start 111: integration::format() ignores surplus arguments with no placeholder to fill
+111/151 Test #111: integration::format() ignores surplus arguments with no placeholder to fill ...................................................................   Passed    0.01 sec
+        Start 112: integration::the truncated flag on the wire record surfaces on the decoded record
+112/151 Test #112: integration::the truncated flag on the wire record surfaces on the decoded record .............................................................   Passed    0.01 sec
+        Start 113: integration::subsystem names declared in Options round-trip through a file
+113/151 Test #113: integration::subsystem names declared in Options round-trip through a file ....................................................................   Passed    0.42 sec
+        Start 114: integration::Logger::declareSubsystem after construction names a subsystem the same way
+114/151 Test #114: integration::Logger::declareSubsystem after construction names a subsystem the same way .......................................................   Passed    0.42 sec
+        Start 115: integration::an undeclared subsystem's name is empty, and its records still decode
+115/151 Test #115: integration::an undeclared subsystem's name is empty, and its records still decode ............................................................   Passed    0.42 sec
+        Start 116: integration::a subsystem name longer than the inline cap is truncated, and the cut is counted
+116/151 Test #116: integration::a subsystem name longer than the inline cap is truncated, and the cut is counted .................................................   Passed    0.42 sec
+        Start 117: integration::a duplicate subsystem declaration keeps the first name
+117/151 Test #117: integration::a duplicate subsystem declaration keeps the first name ...........................................................................   Passed    0.43 sec
+        Start 118: integration::a segment containing subsystem definitions decodes with no damage
+118/151 Test #118: integration::a segment containing subsystem definitions decodes with no damage ................................................................   Passed    0.01 sec
+        Start 119: integration::Merger::subsystemName resolves a name across the segments it was given
+119/151 Test #119: integration::Merger::subsystemName resolves a name across the segments it was given ...........................................................   Passed    0.01 sec
+        Start 120: integration::one subsystem can be turned up without turning the rest up
+120/151 Test #120: integration::one subsystem can be turned up without turning the rest up .......................................................................   Passed    0.42 sec
+        Start 121: integration::a global threshold overrides subsystems already steered
+121/151 Test #121: integration::a global threshold overrides subsystems already steered ..........................................................................   Passed    0.42 sec
+        Start 122: integration::a subsystem id above the table follows the process-wide threshold
+122/151 Test #122: integration::a subsystem id above the table follows the process-wide threshold ................................................................   Passed    0.43 sec
+        Start 123: system::a plugin built -fvisibility=hidden logs into the host through the C ABI (R4)
+123/151 Test #123: system::a plugin built -fvisibility=hidden logs into the host through the C ABI (R4) ..........................................................   Passed    0.43 sec
+        Start 124: system::emitting with nothing bound is counted (R9.3)
+124/151 Test #124: system::emitting with nothing bound is counted (R9.3) .........................................................................................   Passed    0.01 sec
+        Start 125: system::a bound instance never touches the unbound counter
+125/151 Test #125: system::a bound instance never touches the unbound counter ....................................................................................   Passed    0.02 sec
+        Start 126: system::Windows command-line quoting round-trips through the documented split rules
+126/151 Test #126: system::Windows command-line quoting round-trips through the documented split rules ...........................................................   Passed    0.01 sec
+        Start 127: system::Windows command-line quoting matches the documented rules on known shapes
+127/151 Test #127: system::Windows command-line quoting matches the documented rules on known shapes .............................................................   Passed    0.01 sec
+        Start 128: system::a captured echo produces ChildStart, ChildOutput and a clean ChildExit (R5.5)
+128/151 Test #128: system::a captured echo produces ChildStart, ChildOutput and a clean ChildExit (R5.5) .........................................................   Passed    0.43 sec
+        Start 129: system::stdout and stderr are captured on separate streams, per-line (R5.5)
+129/151 Test #129: system::stdout and stderr are captured on separate streams, per-line (R5.5) ...................................................................   Passed    0.42 sec
+        Start 130: system::an exit code reaches ChildExit and wait()'s return
+130/151 Test #130: system::an exit code reaches ChildExit and wait()'s return ....................................................................................   Passed    0.43 sec
+        Start 131: system::an interceptor can suppress lines, counted, and survives throwing (R5.6)
+131/151 Test #131: system::an interceptor can suppress lines, counted, and survives throwing (R5.6) ..............................................................   Passed    0.42 sec
+        Start 132: system::an interceptor can harvest a value from output as it arrives (R5.6)
+132/151 Test #132: system::an interceptor can harvest a value from output as it arrives (R5.6) ...................................................................   Passed    0.03 sec
+        Start 133: system::SUB0LOG_CORRELATION propagates into the child's environment (R5.4)
+133/151 Test #133: system::SUB0LOG_CORRELATION propagates into the child's environment (R5.4) ....................................................................   Passed    0.43 sec
+        Start 134: system::a line longer than the line cap is flagged truncated and counted (R9.2)
+134/151 Test #134: system::a line longer than the line cap is flagged truncated and counted (R9.2) ...............................................................   Passed    0.42 sec
+        Start 135: system::with no Logger bound at spawn, the child still runs and output is counted unlogged (R9.1)
+135/151 Test #135: system::with no Logger bound at spawn, the child still runs and output is counted unlogged (R9.1) .............................................   Passed    0.02 sec
+        Start 136: system::two independent readers tailing one live segment do not interfere
+136/151 Test #136: system::two independent readers tailing one live segment do not interfere .....................................................................   Passed    0.87 sec
+        Start 137: system::a segment under a non-ASCII directory round-trips (R8.1)
+137/151 Test #137: system::a segment under a non-ASCII directory round-trips (R8.1) ..............................................................................   Passed    0.41 sec
+        Start 138: system::a directory that does not exist fails classified, not silently
+138/151 Test #138: system::a directory that does not exist fails classified, not silently ........................................................................   Passed    0.01 sec
+        Start 139: system::a logged record round-trips typed through the file
+139/151 Test #139: system::a logged record round-trips typed through the file ....................................................................................   Passed    0.40 sec
+        Start 140: system::a std::string argument round-trips through the file exactly like a std::string_view argument
+140/151 Test #140: system::a std::string argument round-trips through the file exactly like a std::string_view argument ..........................................   Passed    0.40 sec
+        Start 141: system::a call site reached under a second Logger is announced into that segment too
+141/151 Test #141: system::a call site reached under a second Logger is announced into that segment too ..........................................................   Passed    0.80 sec
+        Start 142: system::filling a segment leaves no record without its definition
+142/151 Test #142: system::filling a segment leaves no record without its definition .............................................................................   Passed    0.02 sec
+        Start 143: system::sub0log-cat renders a segment a producer just wrote
+143/151 Test #143: system::sub0log-cat renders a segment a producer just wrote ...................................................................................   Passed    1.86 sec
+        Start 144: system::sub0log-cat says so rather than exiting quietly on a bad path
+144/151 Test #144: system::sub0log-cat says so rather than exiting quietly on a bad path .........................................................................   Passed    0.03 sec
+        Start 145: system::jsonl_receiver
+145/151 Test #145: system::jsonl_receiver ........................................................................................................................   Passed    3.85 sec
+        Start 146: qt_keywords::shim_first
+146/151 Test #146: qt_keywords::shim_first .......................................................................................................................   Passed    0.43 sec
+        Start 147: qt_keywords::shim_after
+147/151 Test #147: qt_keywords::shim_after .......................................................................................................................   Passed    0.43 sec
+        Start 148: embedded::producer
+148/151 Test #148: embedded::producer ............................................................................................................................   Passed    0.03 sec
+        Start 149: embedded::decode
+149/151 Test #149: embedded::decode ..............................................................................................................................   Passed    0.02 sec
+        Start 150: packaging::find_package
+150/151 Test #150: packaging::find_package .......................................................................................................................   Passed    6.55 sec
+        Start 151: packaging::cpm_fetch
+151/151 Test #151: packaging::cpm_fetch ..........................................................................................................................   Passed    4.37 sec
+
+100% tests passed, 0 tests failed out of 151
+
+Label Time Summary:
+embedded       =   0.05 sec*proc (2 tests)
+integration    =   8.62 sec*proc (76 tests)
+packaging      =  10.92 sec*proc (2 tests)
+qt             =   0.86 sec*proc (2 tests)
+system         =  11.73 sec*proc (23 tests)
+unit           =   0.48 sec*proc (50 tests)
+
+Total Test time (real) =  32.01 sec
