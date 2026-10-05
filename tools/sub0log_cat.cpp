@@ -12,6 +12,7 @@
 // daemon, no index. Point it at a file or a directory, get records in time
 // order across every process that wrote one.
 
+#include <sub0log/json.hpp>
 #include <sub0log/merge.hpp>
 #include <sub0log/reader.hpp>
 #include <sub0log/version.hpp>
@@ -35,6 +36,8 @@ namespace {
 
 constexpr std::string_view cSegmentExtension = ".s0l";
 
+enum class OutputFormat { Text, Jsonl };
+
 struct Options {
     std::vector<std::filesystem::path> inputs_{};
     sub0log::Severity minimum_{sub0log::Severity::Trace};
@@ -43,6 +46,7 @@ struct Options {
     bool follow_{false};
     bool stats_{false};
     bool helpOnly_{false};
+    OutputFormat format_{OutputFormat::Text};
 };
 
 [[nodiscard]] const char* severityName(const sub0log::Severity severity) noexcept
@@ -175,6 +179,7 @@ void printUsage()
         "                           (trace|debug|info|warning|error|unclassified|fatal)\n"
         "  -s, --subsystem <id>     only this subsystem id (repeatable)\n"
         "  -c, --correlation <id>   only this correlation id\n"
+        "      --format <name>      text (default) or jsonl (snapshot only)\n"
         "      --stats              report the mechanism's own counters when done\n"
         "  -h, --help               this text\n"
         "\n"
@@ -207,6 +212,20 @@ void printUsage()
             options.follow_ = true;
         } else if (argument == "--stats") {
             options.stats_ = true;
+        } else if (argument == "--format") {
+            const char* const value = next("--format");
+            if (value == nullptr) {
+                return false;
+            }
+            const std::string_view name{value};
+            if (name == "text") {
+                options.format_ = OutputFormat::Text;
+            } else if (name == "jsonl") {
+                options.format_ = OutputFormat::Jsonl;
+            } else {
+                std::fprintf(stderr, "sub0log-cat: unknown format '%s' (use text or jsonl)\n", value);
+                return false;
+            }
         } else if (argument == "-l" || argument == "--level") {
             const char* const value = next("--level");
             if (value == nullptr || !parseSeverity(value, options.minimum_)) {
@@ -235,6 +254,11 @@ void printUsage()
         }
     }
 
+    if (options.follow_ && options.format_ == OutputFormat::Jsonl) {
+        std::fprintf(stderr, "sub0log-cat: jsonl is snapshot-only; remove --follow. "
+                             "Live JSONL requires a stable follow cursor.\n");
+        return false;
+    }
     if (options.inputs_.empty()) {
         std::fprintf(stderr, "sub0log-cat: no input given (try --help)\n");
         return false;
@@ -292,12 +316,21 @@ int main(int argc, char** argv)
         // segments. The answer cannot change within a pass, so it is asked
         // once per id.
         std::unordered_map<std::uint32_t, std::string> subsystemLabels;
+        std::unordered_map<std::uint32_t, std::string_view> subsystemNames;
+        const auto nameFor = [&](const sub0log::SubsystemId subsystem) -> std::string_view {
+            const auto found = subsystemNames.find(subsystem.value_);
+            if (found != subsystemNames.end()) {
+                return found->second;
+            }
+            return subsystemNames.emplace(subsystem.value_, merger.subsystemName(subsystem))
+                                 .first->second;
+        };
         const auto labelFor = [&](const sub0log::SubsystemId subsystem) -> const std::string& {
             const auto found = subsystemLabels.find(subsystem.value_);
             if (found != subsystemLabels.end()) {
                 return found->second;
             }
-            const std::string_view name = merger.subsystemName(subsystem);
+            const std::string_view name = nameFor(subsystem);
             std::string label = std::to_string(subsystem.value_);
             if (!name.empty()) {
                 // Name and number both: the name is what a person reads, the
@@ -312,6 +345,21 @@ int main(int argc, char** argv)
         for (std::size_t i = alreadyPrinted; i < merged.size(); ++i) {
             const sub0log::MergedRecord& entry = merged[i];
             if (!wanted(options, entry.record_)) {
+                continue;
+            }
+            if (options.format_ == OutputFormat::Jsonl) {
+                std::string line;
+                try {
+                    line = sub0log::formatJson(entry, nameFor(entry.record_.site_->subsystem_));
+                } catch (const std::exception& error) {
+                    std::fprintf(stderr, "sub0log-cat: JSON formatting failed: %s\n", error.what());
+                    return 1;
+                }
+                line += '\n';
+                if (std::fwrite(line.data(), 1, line.size(), stdout) != line.size()) {
+                    std::fprintf(stderr, "sub0log-cat: failed to write JSONL output\n");
+                    return 1;
+                }
                 continue;
             }
             std::printf("%s  pid=%llu tid=%llu  %s  %s  %s%s\n",
@@ -349,6 +397,11 @@ int main(int argc, char** argv)
 
     if (!anySegmentOpened) {
         std::fprintf(stderr, "sub0log-cat: nothing readable in the given path(s)\n");
+        return 1;
+    }
+    if (options.format_ == OutputFormat::Jsonl
+        && (std::fflush(stdout) != 0 || std::ferror(stdout) != 0)) {
+        std::fprintf(stderr, "sub0log-cat: failed to flush JSONL output\n");
         return 1;
     }
     return 0;

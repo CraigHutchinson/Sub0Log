@@ -89,6 +89,29 @@ sub0log_add_test_category(Unit)
 sub0log_add_test_category(Integration)
 sub0log_add_test_category(System)
 
+# The JSON parser is an independent standard-library consumer of the actual
+# CLI, not a substring assertion against the implementation's own formatter.
+if(TARGET sub0log-cat)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_executable(Sub0LogJsonlFixture jsonl/fixture.cpp)
+        target_link_libraries(Sub0LogJsonlFixture PRIVATE Sub0Log::Sub0Log)
+        set_target_properties(Sub0LogJsonlFixture PROPERTIES
+            CXX_STANDARD 23 CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+        if(MSVC)
+            target_compile_options(Sub0LogJsonlFixture PRIVATE /W4)
+        else()
+            target_compile_options(Sub0LogJsonlFixture PRIVATE -Wall -Wextra -Wpedantic)
+        endif()
+        add_test(NAME system::jsonl_receiver
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/jsonl/receive.py"
+                    "$<TARGET_FILE:sub0log-cat>" "$<TARGET_FILE:Sub0LogJsonlFixture>")
+        set_tests_properties(system::jsonl_receiver PROPERTIES LABELS system TIMEOUT 60)
+    else()
+        message(STATUS "JSONL CLI receiver not registered: Python3 interpreter unavailable")
+    endif()
+endif()
+
 # R4's dlopen round trip (tests/system/abi.test.cpp) needs two things the
 # other system tests do not:
 #  - the built plugin's path, the same way SUB0LOG_CAT_PATH already hands

@@ -36,6 +36,7 @@
 #include <sub0log/context.hpp>
 #include <sub0log/encode.hpp>
 #include <sub0log/instance.hpp>
+#include <sub0log/json.hpp>
 #include <sub0log/log.hpp>
 #include <sub0log/merge.hpp>
 #include <sub0log/reader.hpp>
