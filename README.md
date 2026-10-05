@@ -15,9 +15,11 @@ on every push to `main`. They read "unknown" until that job has run once.
 ```cpp
 #include <sub0log/log.hpp>
 #include <cstdint>
+#include <filesystem>
 
 int main()
 {
+    std::filesystem::create_directories("logs");
     constexpr sub0log::SubsystemId cStorage{3};
     sub0log::Logger::Options options{};
     options.directory_ = "logs";

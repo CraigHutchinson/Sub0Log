@@ -91,7 +91,7 @@ sub0log_add_test_category(System)
 
 # The JSON parser is an independent standard-library consumer of the actual
 # CLI, not a substring assertion against the implementation's own formatter.
-if(TARGET sub0log-cat)
+if(TARGET sub0log-cat AND NOT CMAKE_CROSSCOMPILING)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_executable(Sub0LogJsonlFixture jsonl/fixture.cpp)
