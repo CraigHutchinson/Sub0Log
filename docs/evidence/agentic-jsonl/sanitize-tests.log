@@ -1,0 +1,17 @@
+Test project D:/Craig/GitHub/Sub0Log/.worktrees/agentic-json-receiving/build/sanitize-release
+    Start 30: unit::JSON formatter validates borrowed record shape before export
+1/4 Test #30: unit::JSON formatter validates borrowed record shape before export .........   Passed    0.04 sec
+    Start 31: unit::JSON text fallback rejects invalid UTF8 instead of replacing bytes
+2/4 Test #31: unit::JSON text fallback rejects invalid UTF8 instead of replacing bytes ...   Passed    0.02 sec
+    Start 32: unit::JSON formatter result owns text after decoder-style borrows change
+3/4 Test #32: unit::JSON formatter result owns text after decoder-style borrows change ...   Passed    0.02 sec
+    Start 53: system::jsonl_receiver
+4/4 Test #53: system::jsonl_receiver .....................................................   Passed    1.58 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Label Time Summary:
+system    =   1.58 sec*proc (1 test)
+unit      =   0.07 sec*proc (3 tests)
+
+Total Test time (real) =   1.72 sec
