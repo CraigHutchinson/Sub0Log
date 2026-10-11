@@ -21,6 +21,15 @@ launch() {
         -f 0x10200000 -n "$activity"
 }
 
+# A cold emulator may recreate NativeActivity during its initial configuration
+# work, before this driver sends any lifecycle action. Settle that unmeasured
+# startup, then kill and clear it so every checked record belongs to the two
+# controlled processes below. Recreation during either measured run still fails.
+launch
+sleep 8
+adb shell am force-stop "$pkg"
+adb shell pm clear "$pkg" | tr -d '\r' | grep -q '^Success$'
+
 # Run 1: launch, background (HOME: pause + stop), foreground again (resume),
 # then terminate the way the system does -- SIGKILL, no callback.
 launch
