@@ -49,6 +49,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
       - name: Install Ninja (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y ninja-build
@@ -85,6 +89,18 @@ jobs:
 
       - name: Build
         run: cmake --build build --config Debug
+
+      - name: Require native JSONL receiver registration
+        shell: python
+        run: |
+          import json
+          import subprocess
+          result = subprocess.run(
+              ['ctest', '--test-dir', 'build', '-C', 'Debug', '--show-only=json-v1'],
+              check=True, capture_output=True, text=True)
+          names = {entry['name'] for entry in json.loads(result.stdout)['tests']}
+          if 'system::jsonl_receiver' not in names:
+              raise SystemExit('Native CI must register the actual JSONL parser receiver')
 
       - name: Test
         run: ctest --test-dir build -C Debug --output-on-failure

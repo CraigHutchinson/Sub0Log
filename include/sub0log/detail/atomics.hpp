@@ -47,6 +47,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <type_traits>
 
 namespace sub0log::detail {
