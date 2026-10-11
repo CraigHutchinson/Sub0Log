@@ -83,9 +83,7 @@ def main():
             assert filtered.returncode == 0, filtered.stderr
             assert len([json.loads(line) for line in filtered.stdout.splitlines()]) == expected
         for args, message in ((["--format", "xml"], b"unknown format"),
-                               (["--format"], b"unknown format"),
-                               (["--format", "jsonl", "--follow"], b"remove --follow"),
-                               (["--follow", "--format", "jsonl"], b"remove --follow")):
+                               (["--format"], b"unknown format")):
             invalid_result = run(*args)
             assert invalid_result.returncode == 2 and message in invalid_result.stderr
             assert not invalid_result.stdout

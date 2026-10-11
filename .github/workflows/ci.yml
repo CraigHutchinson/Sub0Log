@@ -99,8 +99,9 @@ jobs:
               ['ctest', '--test-dir', 'build', '-C', 'Debug', '--show-only=json-v1'],
               check=True, capture_output=True, text=True)
           names = {entry['name'] for entry in json.loads(result.stdout)['tests']}
-          if 'system::jsonl_receiver' not in names:
-              raise SystemExit('Native CI must register the actual JSONL parser receiver')
+          required = {'system::jsonl_receiver', 'system::follow_receiver'}
+          if not required <= names:
+              raise SystemExit(f'Native CI missing receivers: {required - names}')
 
       - name: Test
         run: ctest --test-dir build -C Debug --output-on-failure

@@ -187,6 +187,8 @@ inline void appendArg(std::string& out, const wire::TypeCode code, const Decoded
     json_detail::appendText(out, site.file_);
     out += ",\"message\":";
     json_detail::appendText(out, Decoder::format(record));
+    out += ",\"segment_generation\":\"" + std::to_string(record.segmentGeneration_)
+         + "\",\"record_offset\":\"" + std::to_string(record.recordOffset_) + "\"";
     out += ",\"args\":[";
     for (std::size_t i = 0; i < record.args_.size(); ++i) {
         if (i != 0) {
