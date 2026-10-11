@@ -25,6 +25,8 @@ launch() {
 # then terminate the way the system does -- SIGKILL, no callback.
 launch
 sleep 4
+# Preserve framework recreation evidence before the later force-stops.
+adb logcat -d -s ActivityTaskManager:I ActivityManager:I | tail -100
 adb shell input keyevent KEYCODE_HOME
 sleep 4
 launch
@@ -45,4 +47,9 @@ done
 ls -l "$work"
 adb logcat -d -s sub0log:I | tail -5 || true
 
-sh "$here/check_lifecycle.sh" "$work" "$cat_tool"
+if ! sh "$here/check_lifecycle.sh" "$work" "$cat_tool"; then
+    # Retain the decoded lifecycle on failure even when cardinality checks fail
+    # before the normal decoder call. Never weaken the receiving assertions.
+    "$cat_tool" --stats "$work"/lifecycle-*.s0l || true
+    exit 1
+fi
