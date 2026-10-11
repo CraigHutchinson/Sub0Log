@@ -485,10 +485,16 @@ int run(const Options& options, Health& health)
                         + (entry.record_.truncated_ ? " [truncated]" : "");
                 }
                 line += '\n';
-                if (line.size() > options.maxOutputBytes_ - outputBytes) {
+                std::uint64_t encodedBytes = line.size();
+#if defined(_WIN32)
+                // stdout is a CRT text stream: each LF becomes CRLF. Budget
+                // physical output, including embedded newlines in text mode.
+                encodedBytes += static_cast<std::uint64_t>(std::ranges::count(line, '\n'));
+#endif
+                if (encodedBytes > options.maxOutputBytes_ - outputBytes) {
                     throw BudgetError{"output byte budget exceeded"};
                 }
-                outputBytes += line.size();
+                outputBytes += encodedBytes;
                 if (std::fwrite(line.data(), 1, line.size(), stdout) != line.size()) {
                     std::fprintf(stderr, "sub0log-cat: failed to write text/JSONL output\n");
                     return 1;

@@ -158,6 +158,10 @@ def main(root):
         limited = run('--format', 'jsonl', option, limit, early)
         assert limited.returncode == 4, limited.stderr
     assert run('--max-files', '1', early, late).returncode == 4
+    for format_name in ('text', 'jsonl'):
+        output = run('--format', format_name, early).stdout
+        assert run('--format', format_name, '--max-output-bytes', str(len(output)), early).returncode == 0
+        assert run('--format', format_name, '--max-output-bytes', str(len(output) - 1), early).returncode == 4
     capped = root / 'capped.s0l'
     shutil.copyfile(early, capped)
     with following(capped, '--max-records', '3') as (process, lines):
