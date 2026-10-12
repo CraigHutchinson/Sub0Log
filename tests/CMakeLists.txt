@@ -107,6 +107,13 @@ if(TARGET sub0log-cat AND NOT CMAKE_CROSSCOMPILING)
             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/jsonl/receive.py"
                     "$<TARGET_FILE:sub0log-cat>" "$<TARGET_FILE:Sub0LogJsonlFixture>")
         set_tests_properties(system::jsonl_receiver PROPERTIES LABELS system TIMEOUT 60)
+        find_package(Threads REQUIRED)
+        add_executable(Sub0LogFollowFixture jsonl/follow_fixture.cpp)
+        target_link_libraries(Sub0LogFollowFixture PRIVATE Sub0Log::Sub0Log Threads::Threads)
+        add_test(NAME system::follow_receiver
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/jsonl/follow.py"
+                    "$<TARGET_FILE:sub0log-cat>" "$<TARGET_FILE:Sub0LogFollowFixture>")
+        set_tests_properties(system::follow_receiver PROPERTIES LABELS system TIMEOUT 60)
     else()
         message(STATUS "JSONL CLI receiver not registered: Python3 interpreter unavailable")
     endif()

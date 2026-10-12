@@ -42,6 +42,7 @@ public:
         std::uint64_t unreadableBytes_{}; ///< Damage: see SegmentReader.
         std::uint64_t unwrittenBytes_{};  ///< Never-written space; expected.
         std::uint64_t undecodableRecords_{};
+        std::uint64_t skippedRecords_{};
     };
 
     /// The image must outlive the Merger (views point into it). Returns
@@ -117,6 +118,7 @@ inline SegmentError Merger::addSegment(std::span<const std::byte> image)
     totals_.unreadableBytes_ += reader.unreadableBytes();
     totals_.unwrittenBytes_ += reader.unwrittenBytes();
     totals_.undecodableRecords_ += loaded.decoder_.undecodableRecords();
+    totals_.skippedRecords_ += loaded.decoder_.skippedRecords();
 
     segments_.push_back(std::move(loaded));
     return SegmentError::Ok;

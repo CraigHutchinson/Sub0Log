@@ -263,13 +263,18 @@ subsystem, correlation), never a text search of the rendered message.
   Text metadata uses valid UTF-8 or a lossless hex fallback.
 - **Receiving workflow:** run the Python standard-library parser recipe in
   [JSON export](docs/json-export.md) first, then review the equivalent text output.
-- **Follow limits:** text `--follow` polls, but late earlier records can be skipped
-  or repeated by its merged-count cursor. JSONL `--follow` is rejected until stable
-  provenance/cursors support reliable machine waiting ([#14](https://github.com/CraigHutchinson/Sub0Log/issues/14)).
-- **Health/errors:** `--stats` stays on stderr; offline producer drops are unknown.
-  Exit 0 means at least one readable segment, not completeness; 1 reports no readable
-  input or detected JSON output failure, and 2 invalid usage. Inspect stderr for
-  skipped/damaged inputs; details and ownership limits are in the export guide.
+- **Follow:** `sub0log-cat --format jsonl --follow ./logs` emits each newly
+  decoded physical message once per invocation, including late older records.
+  Records are time-sorted within each scan; arrival batches are not globally sorted.
+- **Finite event wait:** `sub0log-cat --format jsonl --wait-ms 5000 --arg-uint 0:42 ./logs`
+  receives the first message whose unsigned argument 0 equals 42, including existing
+  history. Exit 3 means timeout; 1 means input/output failure; 2 invalid usage;
+  4 a resource budget. Correlation 0 is now an exact filter; malformed numbers fail.
+- **Health/errors:** `--health-json` appends a final health object to stderr;
+  `--stats` retains its human summary. Offline producer drops remain unknown.
+  Snapshot/follow can recover partial inputs; waits reject incomplete scans.
+  [Follow and wait contracts](docs/follow-wait.md) describe default budgets,
+  cancellation, subprocess timeouts, replacement and receiving checks.
 
 As many readers as you like, at once, on a live segment -- another
 `sub0log-cat --follow`, a tailer like `examples/07_live_tail.cpp`, your own

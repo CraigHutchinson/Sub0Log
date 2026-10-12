@@ -72,6 +72,8 @@ TEST_CASE("decoder round-trips typed arguments through a hand-built segment")
     CHECK(rec.site_->format_ == "x={} y={} z={} b={} s={}");
     CHECK(rec.site_->file_ == "test.cpp");
     CHECK(rec.monoNs_ == 555u);
+    CHECK(rec.segmentGeneration_ == 12345u);
+    CHECK(rec.recordOffset_ == recordStart);
     CHECK(rec.correlationId_ == 777u);
     CHECK(rec.ownerThread_ == 42u);
     CHECK_FALSE(rec.truncated_);

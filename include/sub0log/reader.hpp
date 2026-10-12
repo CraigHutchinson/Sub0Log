@@ -42,6 +42,7 @@ struct RecordView {
     std::span<const std::byte> payload_{};
     std::uint32_t chunkIndex_{};
     std::uint64_t ownerThread_{};
+    std::uint64_t recordOffset_{}; ///< Absolute byte offset of the committed head.
 };
 
 /// Why a segment could not be opened at all (damage *within* a valid segment
@@ -185,6 +186,8 @@ struct DecodedRecord {
     std::uint64_t ownerThread_{};
     bool truncated_{};
     std::vector<DecodedArg> args_{};
+    std::uint64_t segmentGeneration_{}; ///< Existing wire generation; no new wire field.
+    std::uint64_t recordOffset_{}; ///< Opening Message head, including chained messages.
 };
 
 /** Builds the site table from definitions as they arrive (they precede first
@@ -555,6 +558,7 @@ std::uint64_t SegmentReader::visit(OnRecord&& onRecord)
                 std::span<const std::byte>(image_.data() + afterHead, head.payloadBytes_),
                 chunkIndex,
                 chunkHead.ownerThread_,
+                cursor,
             };
             onRecord(view);
 
@@ -921,6 +925,8 @@ inline std::vector<DecodedRecord> Decoder::decodeAll(SegmentReader& reader)
         rec.ownerThread_ = v.ownerThread_;
         rec.truncated_ = (v.head_.flags_ & wire::cFlagTruncated) != 0u;
         rec.args_ = std::move(args);
+        rec.segmentGeneration_ = reader.header().generation_;
+        rec.recordOffset_ = v.recordOffset_;
 
         if ((v.head_.flags_ & wire::cFlagContinued) != 0u) {
             // Held, not pushed: the chain this promises has not been seen

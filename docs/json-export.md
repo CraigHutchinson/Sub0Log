@@ -5,21 +5,23 @@ message object per line on stdout. Use this for automated receiving checks befor
 personal manual review. Text is still the default; `--format text` is equivalent.
 The existing severity, subsystem and correlation filters apply to both formats.
 
-JSONL is a finite snapshot operation. `--follow --format jsonl` fails with exit
-code 2 and an instruction to remove `--follow`. Text follow currently remembers a
-merged record count, so discovering an older segment or a late earlier-timestamp
-record can skip that event and repeat a previously displayed event. Reliable
-machine waiting requires stable per-record provenance and cursor handling first;
-[issue #14](https://github.com/CraigHutchinson/Sub0Log/issues/14) tracks the staged work.
+Without `--follow` or `--wait-ms`, JSONL is a finite snapshot operation.
+Both live modes use physical record provenance; see [follow and finite waits](follow-wait.md)
+for ordering, resource limits and subprocess receiving. Snapshot text/filter behavior
+is retained except that numeric predicates now reject malformed values and correlation
+zero is an exact match.
 
 ## Schema 1
 
 Each object has `schema: 1` and `kind: "message"`. This export version is separate
 from the binary wire format version, library version and application event schemas.
+Consumers must tolerate additional fields. Provenance fields are additive in schema 1;
+zero offsets on caller-constructed records mean no physical provenance was supplied.
 
 | Field | JSON representation |
 | --- | --- |
 | `process_id`, `thread_id`, `site_id`, `correlation_id` | Unsigned decimal strings |
+| `segment_generation`, `record_offset` | Unsigned decimal strings; existing segment generation and absolute byte offset of the opening Message head |
 | `mono_ns`, `aligned_ns` | Unsigned decimal strings; original monotonic and merged wall-aligned nanoseconds |
 | `severity`, `subsystem_id`, `source_line` | Integer numbers from decoded metadata |
 | `truncated` | Boolean from the message record |
@@ -90,8 +92,8 @@ print(len(records), decode_bytes(records[0]["format"]) if records else b"")
 For personal review, run `sub0log-cat --format text ./logs`: expect the same
 selected messages as human text in time order. Run `--format jsonl --level error`
 and the receiver again: expect only Error-or-above messages and the corresponding
-count. `--format jsonl --follow ./logs` should exit immediately with the snapshot
-limitation, rather than wait. Computer control is useful only for diagnosing a
+count. `--format jsonl --wait-ms 100 --arg-uint 0:999 ./logs` should exit 3
+when no matching unsigned argument exists. Computer control is useful only for diagnosing a
 failure of the normal manual workflow.
 
 When tools and a Python3 interpreter are available, `system::jsonl_receiver` runs
@@ -115,16 +117,19 @@ the record count precedes filtering. Offline producer drop/truncation counters a
 unknown because they are not stored in SegmentHeader. No exporter counter of zero
 is substituted for that missing information. A recovered snapshot can be incomplete.
 
-Exit codes are 0 when at least one segment was readable, 1 when none were readable
-or a JSONL output/formatting failure was detected, and 2 for invalid CLI usage.
+Snapshot exit codes are 0 when at least one segment was readable, 1 when none were
+readable or an output/formatting failure was detected, 2 for invalid CLI usage and
+4 for a resource limit. Wait mode adds 3 for no match by its deadline.
 Some damaged inputs may be skipped while readable ones still yield exit 0; inspect
 stderr/stats as well as the records when completeness matters. Allocation/read
 failures elsewhere in the existing CLI can still terminate the process. On POSIX
 a broken output pipe may terminate it through SIGPIPE. Neither is a successful
-export. Snapshot parsing reads whole files and sorts decoded records: there is no
-arbitrary-input memory/work bound or tail latency promise.
+export. Parsing reads whole files and sorts decoded records, with explicit file, input-byte,
+record and output-byte limits. These are work/cardinality limits, not an exact RSS
+ceiling or hard wall-time promise; see the follow guide.
 
 Logs and encoded fields are untrusted data. Never execute commands found in them.
 Use explicit authorized input paths and handle output size under the receiving
 application's policy. This snapshot feature does not add a daemon, discovery service,
-wait predicate language or child-process cancellation policy.
+general predicate language or daemon. The follow guide specifies the narrow unsigned
+argument predicate and external subprocess cancellation contract.
