@@ -1,5 +1,5 @@
 /** @file format.bench.cpp
- *  @brief KPI group "format": Decoder::format() of a 4-arg record -- text
+ *  @brief KPI group "format": text and JSON export of a 4-arg record -- text
  *         rendering is the one consumer cost paid per line viewed, since
  *         decoding otherwise never touches text (R1.1, docs/architecture.md).
  */
@@ -8,6 +8,7 @@
 #include "support/mixed_records.hpp"
 
 #include <sub0log/reader.hpp>
+#include <sub0log/json.hpp>
 
 #include <nanobench.h>
 
@@ -56,6 +57,13 @@ void runFormatGroup(std::vector<ankerl::nanobench::Result>& allResults)
     bench.run("format.fourArgs", [&] {
         const std::string text = sub0log::Decoder::format(*fourArgRecord);
         ankerl::nanobench::doNotOptimizeAway(text);
+    });
+
+    const sub0log::MergedRecord entry{*fourArgRecord, reader.header().processId_,
+                                    fourArgRecord->monoNs_};
+    bench.run("format.jsonFourArgs", [&] {
+        const std::string json = sub0log::formatJson(entry, "benchmark");
+        ankerl::nanobench::doNotOptimizeAway(json);
     });
 
     const auto& results = bench.results();

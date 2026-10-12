@@ -9,6 +9,7 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
@@ -96,6 +97,20 @@ inline void appendText(std::string& out, const std::string_view bytes)
     out += '}';
 }
 
+/// Appends decimal digits directly; the buffer covers every supported integer,
+/// including the sign of the smallest signed value.
+template <std::integral Integer>
+    requires (!std::same_as<Integer, bool>)
+inline void appendInteger(std::string& out, const Integer value)
+{
+    std::array<char, std::numeric_limits<Integer>::digits10 + 3> buffer{};
+    const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
+    if (result.ec != std::errc{}) {
+        throw std::runtime_error{"JSON integer conversion failed"};
+    }
+    out.append(buffer.data(), result.ptr);
+}
+
 inline void appendFloat(std::string& out, const double value)
 {
     if (std::isnan(value)) {
@@ -118,18 +133,24 @@ inline void appendFloat(std::string& out, const double value)
 
 inline void appendArg(std::string& out, const wire::TypeCode code, const DecodedArg& arg)
 {
-    out += "{\"type\":" + std::to_string(static_cast<unsigned>(code)) + ",\"value\":";
+    out += "{\"type\":";
+    appendInteger(out, static_cast<unsigned>(code));
+    out += ",\"value\":";
     switch (code) {
     case wire::TypeCode::Bool:
         out += std::get<bool>(arg) ? "true" : "false";
         break;
     case wire::TypeCode::I8: case wire::TypeCode::I16:
     case wire::TypeCode::I32: case wire::TypeCode::I64:
-        appendQuoted(out, std::to_string(std::get<std::int64_t>(arg)));
+        out += '"';
+        appendInteger(out, std::get<std::int64_t>(arg));
+        out += '"';
         break;
     case wire::TypeCode::U8: case wire::TypeCode::U16:
     case wire::TypeCode::U32: case wire::TypeCode::U64: case wire::TypeCode::Pointer:
-        appendQuoted(out, std::to_string(std::get<std::uint64_t>(arg)));
+        out += '"';
+        appendInteger(out, std::get<std::uint64_t>(arg));
+        out += '"';
         break;
     case wire::TypeCode::F32: case wire::TypeCode::F64:
         appendFloat(out, std::get<double>(arg));
@@ -168,18 +189,34 @@ inline void appendArg(std::string& out, const wire::TypeCode code, const Decoded
         throw std::invalid_argument{"JSON message needs a site and matching argument types"};
     }
     const DecodedSite& site = *record.site_;
-    std::string out = "{\"schema\":1,\"kind\":\"message\",\"process_id\":\""
-                    + std::to_string(entry.processId_) + "\",\"thread_id\":\""
-                    + std::to_string(record.ownerThread_) + "\",\"site_id\":\""
-                    + std::to_string(site.siteId_) + "\",\"correlation_id\":\""
-                    + std::to_string(record.correlationId_) + "\",\"mono_ns\":\""
-                    + std::to_string(record.monoNs_) + "\",\"aligned_ns\":\""
-                    + std::to_string(entry.alignedNs_) + "\",\"severity\":"
-                    + std::to_string(static_cast<unsigned>(site.severity_))
-                    + ",\"subsystem_id\":" + std::to_string(site.subsystem_.value_)
-                    + ",\"source_line\":" + std::to_string(site.line_)
-                    + ",\"truncated\":" + (record.truncated_ ? "true" : "false")
-                    + ",\"subsystem_name\":";
+    std::string out = "{\"schema\":1,\"kind\":\"message\"";
+    out += ",\"process_id\":\"";
+    json_detail::appendInteger(out, entry.processId_);
+    out += '"';
+    out += ",\"thread_id\":\"";
+    json_detail::appendInteger(out, record.ownerThread_);
+    out += '"';
+    out += ",\"site_id\":\"";
+    json_detail::appendInteger(out, site.siteId_);
+    out += '"';
+    out += ",\"correlation_id\":\"";
+    json_detail::appendInteger(out, record.correlationId_);
+    out += '"';
+    out += ",\"mono_ns\":\"";
+    json_detail::appendInteger(out, record.monoNs_);
+    out += '"';
+    out += ",\"aligned_ns\":\"";
+    json_detail::appendInteger(out, entry.alignedNs_);
+    out += '"';
+    out += ",\"severity\":";
+    json_detail::appendInteger(out, static_cast<unsigned>(site.severity_));
+    out += ",\"subsystem_id\":";
+    json_detail::appendInteger(out, site.subsystem_.value_);
+    out += ",\"source_line\":";
+    json_detail::appendInteger(out, site.line_);
+    out += ",\"truncated\":";
+    out += record.truncated_ ? "true" : "false";
+    out += ",\"subsystem_name\":";
     json_detail::appendText(out, subsystemName);
     out += ",\"format\":";
     json_detail::appendText(out, site.format_);
@@ -187,8 +224,11 @@ inline void appendArg(std::string& out, const wire::TypeCode code, const Decoded
     json_detail::appendText(out, site.file_);
     out += ",\"message\":";
     json_detail::appendText(out, Decoder::format(record));
-    out += ",\"segment_generation\":\"" + std::to_string(record.segmentGeneration_)
-         + "\",\"record_offset\":\"" + std::to_string(record.recordOffset_) + "\"";
+    out += ",\"segment_generation\":\"";
+    json_detail::appendInteger(out, record.segmentGeneration_);
+    out += "\",\"record_offset\":\"";
+    json_detail::appendInteger(out, record.recordOffset_);
+    out += '"';
     out += ",\"args\":[";
     for (std::size_t i = 0; i < record.args_.size(); ++i) {
         if (i != 0) {
