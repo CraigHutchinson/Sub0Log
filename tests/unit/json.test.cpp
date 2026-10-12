@@ -3,10 +3,35 @@
 #include "support/test_framework.hpp"
 
 #include <array>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
+
+TEST_CASE("JSON metadata preserves full-width decimal values")
+{
+    constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+    sub0log::DecodedSite site{};
+    site.siteId_ = maximum;
+    site.line_ = std::numeric_limits<std::uint32_t>::max();
+    sub0log::MergedRecord entry{};
+    entry.record_.site_ = &site;
+    entry.processId_ = maximum;
+    entry.alignedNs_ = maximum;
+    entry.record_.ownerThread_ = maximum;
+    entry.record_.correlationId_ = maximum;
+    entry.record_.monoNs_ = maximum;
+    entry.record_.segmentGeneration_ = maximum;
+    entry.record_.recordOffset_ = maximum;
+    const auto output = sub0log::formatJson(entry);
+    for (const auto field : {"process_id", "thread_id", "site_id", "correlation_id",
+                             "mono_ns", "aligned_ns", "segment_generation", "record_offset"}) {
+        CHECK(output.find(std::string{"\""} + field + "\":\"18446744073709551615\"")
+              != std::string::npos);
+    }
+    CHECK(output.find("\"source_line\":4294967295") != std::string::npos);
+}
 
 TEST_CASE("JSON formatter validates borrowed record shape before export")
 {

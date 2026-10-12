@@ -135,11 +135,13 @@ template parameter discussion in `support/mixed_records.hpp` for why that
 matters), then `Merger::addSegment()` x4 followed by `merged()`, batched
 over the 100,000 total records.
 
-### `format` -- text rendering cost (the one consumer cost paid per line viewed)
+### `format` -- text and JSON rendering cost
 
 `Decoder::format()` of a single decoded 4-argument record. Decoding
 otherwise never touches text (R1.1); this is the one place it does, and
-only on request.
+only on request. `format.jsonFourArgs` exports the same decoded record through
+`formatJson`, including the human-readable message and typed arguments. Both
+cases retain their fixture outside the measured region and return owned strings.
 
 ### `atomics` -- the two commit/claim protocols side by side
 
