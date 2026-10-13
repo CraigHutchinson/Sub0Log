@@ -74,6 +74,19 @@ def quiet(lines):
     raise AssertionError(f'duplicate/unexpected event: {extra}')
 
 
+def mutate_when_unlocked(operation):
+    # Windows denies rename/delete while the polling reader's ifstream is open.
+    # Wait only for that transient sharing violation; keep every other failure.
+    deadline = time.monotonic() + 2
+    while True:
+        try:
+            return operation()
+        except PermissionError as error:
+            if getattr(error, 'winerror', None) != 32 or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
 def main(root):
     early = produce(root / 'early')
     late = produce(root / 'late')
@@ -91,10 +104,10 @@ def main(root):
         assert {identity(r) for r in take(lines, 3)} == {identity(r) for r in early_records}
         quiet(lines)
         # Aliases, renames, disappearance/reappearance retain wire identity.
-        (watched / 'older.s0l').rename(watched / 'renamed.s0l')
+        mutate_when_unlocked(lambda: (watched / 'older.s0l').rename(watched / 'renamed.s0l'))
         shutil.copyfile(early, watched / 'alias.s0l')
         quiet(lines)
-        active.unlink()
+        mutate_when_unlocked(active.unlink)
         quiet(lines)
         shutil.copyfile(late, active)
         quiet(lines)

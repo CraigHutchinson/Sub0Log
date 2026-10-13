@@ -146,3 +146,12 @@ A separate diagnostic recompilation after timing used the same evaluator command
 with only its object output redirected and -fopt-info-vec-optimized added. Compiler
 remarks are retained alongside a bounded disassembly excerpt. No measured binary
 was rebuilt or replaced during either final campaign.
+
+Hosted first-head Windows receiving exposed an existing follow-fixture race:
+run38332100748, job115083925401, simdjson::follow_reuse failed at the watched-file
+rename with WinError32. The CLI snapshots use a short-lived std::ifstream; Windows
+can deny deletion/rename while that handle is open. The receiving fixture now
+retries only sharing violation32 for at most two seconds on rename/delete; all
+other errors propagate, and identity/no-replay assertions remain unchanged. The
+failure is retained here rather than hidden by rerunning the unchanged job. This
+test-only correction does not alter the measured binaries or performance data.
