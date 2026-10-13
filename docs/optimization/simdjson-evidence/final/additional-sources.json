@@ -1,0 +1,5 @@
+{
+  "benchmarks/simdjson/measure_cli.py": "7e203bc60842e981cec60a1abd0397b74903510e064d9e5a0a61a758f2ad4544",
+  "benchmarks/simdjson/receive_crucible.py": "ce4d5f02b1ddc2c34246ca3bc8737ce3781c59f7d8ea22009b5fb725ca7f640a",
+  "build-simdjson/benchmarks/simdjson/formatter-stdlib.hpp": "990bf82c8363fe8e6af87ae96ccc799a0495ab477bdbfd1353234f592b576b17"
+}

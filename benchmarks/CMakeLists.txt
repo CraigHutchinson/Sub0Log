@@ -85,3 +85,8 @@ if(MSVC)
 else()
     target_compile_options(Sub0LogStress PRIVATE -Wall -Wextra -Wpedantic)
 endif()
+
+option(SUB0LOG_BENCH_SIMDJSON "Build the opt-in simdjson JSON export evaluation" OFF)
+if(SUB0LOG_BENCH_SIMDJSON)
+    add_subdirectory(simdjson)
+endif()

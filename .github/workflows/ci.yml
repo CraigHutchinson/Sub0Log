@@ -389,6 +389,39 @@ jobs:
       - name: Smoke
         run: ./build/benchmarks/Sub0LogBenchmarks --list
 
+  simdjson-evaluation:
+    name: simdjson-${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {name: linux, os: ubuntu-24.04, flags: ""}
+          - {name: macos, os: macos-15, flags: ""}
+          - {name: windows, os: windows-2022, flags: ""}
+          - {name: linux32, os: ubuntu-24.04, flags: "-DCMAKE_CXX_FLAGS=-m32 -DCMAKE_C_FLAGS=-m32"}
+          - {name: sanitize, os: ubuntu-24.04, flags: "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined"}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - if: matrix.name == 'linux32'
+        run: sudo apt-get update && sudo apt-get install -y g++-multilib
+      - name: Configure opt-in experiment
+        run: >
+          cmake -S . -B build-simd -DCMAKE_BUILD_TYPE=Release
+          -DSUB0LOG_BUILD_BENCHMARKS=ON -DSUB0LOG_BENCH_SIMDJSON=ON
+          -DSUB0LOG_TEST_QT=OFF ${{ matrix.flags }}
+      - name: Build experiment and actual CLI fixtures
+        run: >
+          cmake --build build-simd --config Release --parallel 2 --target
+          Sub0LogJsonEvaluation sub0log-cat-simdjson-fresh sub0log-cat-simdjson-reuse sub0log-cat-simdjson-stdlib
+          Sub0LogJsonlFixture Sub0LogFollowFixture
+      - name: Receive byte equivalence and actual JSON/follow contracts
+        run: ctest --test-dir build-simd -C Release -R "^simdjson::" --output-on-failure
+
   coverage:
     # Measures real line coverage from an actual --coverage build and, on
     # main only, publishes it as a badge -- an unmeasured coverage number

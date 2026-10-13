@@ -1,0 +1,66 @@
+000000000000f930 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)>:
+    f930:	f3 0f 1e fa          	endbr64
+    f934:	41 57                	push   %r15
+    f936:	41 56                	push   %r14
+    f938:	41 55                	push   %r13
+    f93a:	49 89 fd             	mov    %rdi,%r13
+    f93d:	41 54                	push   %r12
+    f93f:	49 89 f4             	mov    %rsi,%r12
+    f942:	55                   	push   %rbp
+    f943:	48 89 fd             	mov    %rdi,%rbp
+    f946:	53                   	push   %rbx
+    f947:	48 89 d3             	mov    %rdx,%rbx
+    f94a:	48 83 ec 08          	sub    $0x8,%rsp
+    f94e:	48 83 ff 0f          	cmp    $0xf,%rdi
+    f952:	0f 86 1f 03 00 00    	jbe    fc77 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x347>
+    f958:	66 0f 6f 35 d0 da 03 	movdqa 0x3dad0(%rip),%xmm6        # 4d430 <sub0log::wire::cCrc32NibbleTable+0x110>
+    f95f:	00 
+    f960:	48 89 fa             	mov    %rdi,%rdx
+    f963:	48 89 f0             	mov    %rsi,%rax
+    f966:	66 0f ef db          	pxor   %xmm3,%xmm3
+    f96a:	66 0f 6f 2d ce da 03 	movdqa 0x3dace(%rip),%xmm5        # 4d440 <sub0log::wire::cCrc32NibbleTable+0x120>
+    f971:	00 
+    f972:	66 0f 6f 25 d6 da 03 	movdqa 0x3dad6(%rip),%xmm4        # 4d450 <sub0log::wire::cCrc32NibbleTable+0x130>
+    f979:	00 
+    f97a:	eb 16                	jmp    f992 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x62>
+    f97c:	0f 1f 40 00          	nopl   0x0(%rax)
+    f980:	48 83 ea 10          	sub    $0x10,%rdx
+    f984:	48 83 c0 10          	add    $0x10,%rax
+    f988:	48 83 fa 0f          	cmp    $0xf,%rdx
+    f98c:	0f 86 50 02 00 00    	jbe    fbe2 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x2b2>
+    f992:	f3 0f 6f 08          	movdqu (%rax),%xmm1
+    f996:	66 0f 6f c5          	movdqa %xmm5,%xmm0
+    f99a:	66 0f 6f d1          	movdqa %xmm1,%xmm2
+    f99e:	66 0f 74 c1          	pcmpeqb %xmm1,%xmm0
+    f9a2:	66 0f d8 d6          	psubusb %xmm6,%xmm2
+    f9a6:	66 0f 74 cc          	pcmpeqb %xmm4,%xmm1
+    f9aa:	66 0f 74 d3          	pcmpeqb %xmm3,%xmm2
+    f9ae:	66 0f eb c1          	por    %xmm1,%xmm0
+    f9b2:	66 0f eb c2          	por    %xmm2,%xmm0
+    f9b6:	66 0f d7 c8          	pmovmskb %xmm0,%ecx
+    f9ba:	85 c9                	test   %ecx,%ecx
+    f9bc:	74 c2                	je     f980 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x50>
+    f9be:	48 63 d1             	movslq %ecx,%rdx
+    f9c1:	4c 29 e0             	sub    %r12,%rax
+    f9c4:	f3 48 0f bc d2       	tzcnt  %rdx,%rdx
+    f9c9:	48 63 d2             	movslq %edx,%rdx
+    f9cc:	4c 8d 34 10          	lea    (%rax,%rdx,1),%r14
+    f9d0:	4c 39 f5             	cmp    %r14,%rbp
+    f9d3:	0f 84 44 02 00 00    	je     fc1d <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x2ed>
+    f9d9:	48 89 df             	mov    %rbx,%rdi
+    f9dc:	4c 89 f2             	mov    %r14,%rdx
+    f9df:	4c 89 e6             	mov    %r12,%rsi
+    f9e2:	e8 59 5d ff ff       	call   5740 <memcpy@plt>
+    f9e7:	43 0f b6 04 34       	movzbl (%r12,%r14,1),%eax
+    f9ec:	4a 8d 3c 33          	lea    (%rbx,%r14,1),%rdi
+    f9f0:	3c 22                	cmp    $0x22,%al
+    f9f2:	0f 84 6d 02 00 00    	je     fc65 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x335>
+    f9f8:	3c 5c                	cmp    $0x5c,%al
+    f9fa:	0f 84 53 02 00 00    	je     fc53 <simdjson::fallback::builder::write_string_escaped(std::basic_string_view<char, std::char_traits<char> >, char*)+0x323>
+    fa00:	48 8d 15 39 96 04 00 	lea    0x49639(%rip),%rdx        # 59040 <simdjson::fallback::builder::control_chars>
+    fa07:	48 c1 e0 04          	shl    $0x4,%rax
+    fa0b:	48 01 d0             	add    %rdx,%rax
+    fa0e:	4c 8b 28             	mov    (%rax),%r13
+    fa11:	48 8b 70 08          	mov    0x8(%rax),%rsi
+    fa15:	4c 89 ea             	mov    %r13,%rdx
+    fa18:	e8 23 5d ff ff       	call   5740 <memcpy@plt>
