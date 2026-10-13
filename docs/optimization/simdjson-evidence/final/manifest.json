@@ -1,0 +1,359 @@
+{
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.39",
+  "binary_sha256": "ffa2230afd75bf7d6bc3c2b2a23beea617481d32bf1ae3ea6250664ebec8e7d1",
+  "compiler": "c++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0\nCopyright (C) 2023 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n\n",
+  "compile_commands": [
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tools/CMakeFiles/sub0log-cat.dir/sub0log_cat.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tools/sub0log_cat.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tools/sub0log_cat.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/CMakeFiles/sub0log-cat.dir/sub0log_cat.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSub0LogAbiTestPlugin_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogAbiTestPlugin.dir/system/plugin/abi_test_plugin.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/plugin/abi_test_plugin.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/plugin/abi_test_plugin.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogAbiTestPlugin.dir/system/plugin/abi_test_plugin.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/abi_host_site_table.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/abi_host_site_table.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/abi_host_site_table.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/abi_host_site_table.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/atomics.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/atomics.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/atomics.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/atomics.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/context.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/context.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/context.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/context.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/encode.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/encode.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/encode.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/encode.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/json.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/json.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/json.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/json.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/platform.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/platform.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/platform.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/platform.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/unit/wire.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/unit/wire.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/unit/wire.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/unit/wire.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogUnitTests.dir/support/doctest_main.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/support/doctest_main.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/support/doctest_main.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogUnitTests.dir/support/doctest_main.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/continuation.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/continuation.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/continuation.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/continuation.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/memory_segment.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/memory_segment.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/memory_segment.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/memory_segment.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/merge.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/merge.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/merge.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/merge.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/producer.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/producer.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/producer.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/producer.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/reader.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/reader.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/reader.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/reader.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/subsystem.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/subsystem.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/subsystem.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/subsystem.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/threshold.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/integration/threshold.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/integration/threshold.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/integration/threshold.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogIntegrationTests.dir/support/doctest_main.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/support/doctest_main.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/support/doctest_main.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogIntegrationTests.dir/support/doctest_main.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/abi.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/abi.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/abi.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/abi.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/binding.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/binding.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/binding.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/binding.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/child.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/child.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/child.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/child.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/concurrent_readers.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/concurrent_readers.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/concurrent_readers.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/concurrent_readers.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/paths.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/paths.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/paths.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/paths.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/roundtrip.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/roundtrip.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/roundtrip.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/roundtrip.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/system/tool.test.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/system/tool.test.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/system/tool.test.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/system/tool.test.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_ABI_PLUGIN_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/libSub0LogAbiTestPlugin.so\\\" -DSUB0LOG_CAT_PATH=\\\"/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tools/sub0log-cat\\\" -DSub0LogSystemTests_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogSystemTests.dir/support/doctest_main.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/support/doctest_main.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/support/doctest_main.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogSystemTests.dir/support/doctest_main.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/CMakeFiles/Sub0LogJsonlFixture.dir/jsonl/fixture.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/jsonl/fixture.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/jsonl/fixture.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogJsonlFixture.dir/jsonl/fixture.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=gnu++23 -o tests/CMakeFiles/Sub0LogFollowFixture.dir/jsonl/follow_fixture.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/jsonl/follow_fixture.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/jsonl/follow_fixture.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/CMakeFiles/Sub0LogFollowFixture.dir/jsonl/follow_fixture.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DDOCTEST_CONFIG_IMPLEMENT_WITH_MAIN -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src -O3 -DNDEBUG -std=gnu++11 -o _deps/doctest-build/CMakeFiles/doctest_with_main.dir/doctest/parts/doctest.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src/doctest/parts/doctest.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-src/doctest/parts/doctest.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/doctest-build/CMakeFiles/doctest_with_main.dir/doctest/parts/doctest.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_KEYWORDS_FIRST=1 -DSUB0LOG_KEYWORDS_REAL_QT=0 -DSUB0LOG_KEYWORDS_VARIANT=\\\"shim_first\\\" -DSub0LogQtKeywords_shim_first_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests/qt_keywords -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/qt_keywords/CMakeFiles/Sub0LogQtKeywords_shim_first.dir/keyword_consumer.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/qt_keywords/keyword_consumer.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/qt_keywords/keyword_consumer.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/qt_keywords/CMakeFiles/Sub0LogQtKeywords_shim_first.dir/keyword_consumer.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_KEYWORDS_FIRST=0 -DSUB0LOG_KEYWORDS_REAL_QT=0 -DSUB0LOG_KEYWORDS_VARIANT=\\\"shim_after\\\" -DSub0LogQtKeywords_shim_after_EXPORTS -I/workspace/scratch/b929641ab241/Sub0Log/tests/qt_keywords -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/qt_keywords/CMakeFiles/Sub0LogQtKeywords_shim_after.dir/keyword_consumer.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/qt_keywords/keyword_consumer.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/qt_keywords/keyword_consumer.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/qt_keywords/CMakeFiles/Sub0LogQtKeywords_shim_after.dir/keyword_consumer.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti -o tests/embedded/CMakeFiles/Sub0LogEmbeddedProducer.dir/producer.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/embedded/producer.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/embedded/producer.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/embedded/CMakeFiles/Sub0LogEmbeddedProducer.dir/producer.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_PLATFORM_CUSTOM -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -fno-exceptions -fno-rtti -o tests/embedded/CMakeFiles/Sub0LogFreestandingProbe.dir/freestanding_probe.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/embedded/freestanding_probe.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/embedded/freestanding_probe.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/embedded/CMakeFiles/Sub0LogFreestandingProbe.dir/freestanding_probe.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSUB0LOG_PLATFORM_CUSTOM -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o tests/embedded/CMakeFiles/Sub0LogConstantClock.dir/constant_clock.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/tests/embedded/constant_clock.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/tests/embedded/constant_clock.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/tests/embedded/CMakeFiles/Sub0LogConstantClock.dir/constant_clock.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/main.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/main.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/main.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/main.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/emit.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/emit.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/emit.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/emit.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/claim.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/claim.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/claim.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/claim.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/throughput.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/throughput.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/throughput.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/throughput.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/decode.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/decode.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/decode.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/decode.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/merge.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/merge.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/merge.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/merge.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/format.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/format.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/format.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/format.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/atomics.bench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/atomics.bench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/atomics.bench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogBenchmarks.dir/atomics.bench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/main.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/main.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/main.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/main.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/saturate.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/saturate.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/saturate.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/saturate.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/oversubscribe.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/oversubscribe.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/oversubscribe.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/oversubscribe.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/cap_churn.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/cap_churn.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/cap_churn.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/cap_churn.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/live_tail.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/live_tail.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/live_tail.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/live_tail.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/many_segments.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/many_segments.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/many_segments.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/many_segments.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/child_flood.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/child_flood.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/child_flood.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/child_flood.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/CMakeFiles/Sub0LogStress.dir/stress/soak.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/soak.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/stress/soak.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/CMakeFiles/Sub0LogStress.dir/stress/soak.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=gnu++17 -o _deps/nanobench-build/CMakeFiles/nanobench.dir/src/test/app/nanobench.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/test/app/nanobench.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/test/app/nanobench.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-build/CMakeFiles/nanobench.dir/src/test/app/nanobench.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSIMDJSON_DEVELOPMENT_CHECKS -DSIMDJSON_THREADS_ENABLED=1 -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/simdjson-eval/include -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/nanobench-src/src/include -O3 -DNDEBUG -std=c++23 -Wall -Wextra -Wpedantic -o benchmarks/simdjson/CMakeFiles/Sub0LogJsonEvaluation.dir/evaluate.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson/evaluate.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson/evaluate.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/CMakeFiles/Sub0LogJsonEvaluation.dir/evaluate.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSIMDJSON_DEVELOPMENT_CHECKS -DSIMDJSON_THREADS_ENABLED=1 -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/simdjson-eval/include -O3 -DNDEBUG -std=c++23 -o benchmarks/simdjson/CMakeFiles/sub0log-cat-simdjson-fresh.dir/cat-fresh.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/cat-fresh.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/cat-fresh.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/CMakeFiles/sub0log-cat-simdjson-fresh.dir/cat-fresh.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSIMDJSON_DEVELOPMENT_CHECKS -DSIMDJSON_THREADS_ENABLED=1 -I/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/include -I/workspace/scratch/b929641ab241/simdjson-eval/include -O3 -DNDEBUG -std=c++23 -o benchmarks/simdjson/CMakeFiles/sub0log-cat-simdjson-reuse.dir/cat-reuse.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/cat-reuse.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/cat-reuse.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/CMakeFiles/sub0log-cat-simdjson-reuse.dir/cat-reuse.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -I/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson -I/workspace/scratch/b929641ab241/Sub0Log/include -O3 -DNDEBUG -std=c++23 -o benchmarks/simdjson/CMakeFiles/sub0log-cat-simdjson-stdlib.dir/cat-stdlib.cpp.o -c /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/cat-stdlib.cpp",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/cat-stdlib.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/CMakeFiles/sub0log-cat-simdjson-stdlib.dir/cat-stdlib.cpp.o"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSIMDJSON_AVX512_ALLOWED=1 -DSIMDJSON_DEVELOPMENT_CHECKS -DSIMDJSON_THREADS_ENABLED=1 -DSIMDJSON_UTF8VALIDATION=1 -I/workspace/scratch/b929641ab241/simdjson-eval/include -I/workspace/scratch/b929641ab241/simdjson-eval/src -O3 -DNDEBUG -std=c++17 -mno-avx256-split-unaligned-load -mno-avx256-split-unaligned-store -Winvalid-pch -x c++-header -include /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/simdjson-build/CMakeFiles/simdjson.dir/cmake_pch.hxx -o _deps/simdjson-build/CMakeFiles/simdjson.dir/cmake_pch.hxx.gch -c /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/simdjson-build/CMakeFiles/simdjson.dir/cmake_pch.hxx.cxx",
+      "file": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/simdjson-build/CMakeFiles/simdjson.dir/cmake_pch.hxx.cxx",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/simdjson-build/CMakeFiles/simdjson.dir/cmake_pch.hxx.gch"
+    },
+    {
+      "directory": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson",
+      "command": "/usr/bin/c++ -DSIMDJSON_AVX512_ALLOWED=1 -DSIMDJSON_DEVELOPMENT_CHECKS -DSIMDJSON_THREADS_ENABLED=1 -DSIMDJSON_UTF8VALIDATION=1 -I/workspace/scratch/b929641ab241/simdjson-eval/include -I/workspace/scratch/b929641ab241/simdjson-eval/src -O3 -DNDEBUG -std=c++17 -mno-avx256-split-unaligned-load -mno-avx256-split-unaligned-store -Winvalid-pch -include /workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/simdjson-build/CMakeFiles/simdjson.dir/cmake_pch.hxx -o _deps/simdjson-build/CMakeFiles/simdjson.dir/src/simdjson.cpp.o -c /workspace/scratch/b929641ab241/simdjson-eval/src/simdjson.cpp",
+      "file": "/workspace/scratch/b929641ab241/simdjson-eval/src/simdjson.cpp",
+      "output": "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/_deps/simdjson-build/CMakeFiles/simdjson.dir/src/simdjson.cpp.o"
+    }
+  ],
+  "cooldown_seconds": 1,
+  "order": "five AB/BA/AB/BA/AB pairs per variant",
+  "scope": "unprofiled, cache-hot repeated records; uncontrolled virtual-host load/frequency/temperature",
+  "source_sha256": {
+    "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson/campaign.py": "430e5f083a679463fdaef580c8ddd415732aeac7184e1b4c3abda16710da48af",
+    "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson/evaluate.cpp": "a234fc0e062806dc254c41a22d0afe3603e85fd3e646f40976c2b1f95177337a",
+    "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson/adapter.hpp": "643355adfd7e38730af5fd630aa89625b6c86e93527757d4741e4f49a63377d4",
+    "/workspace/scratch/b929641ab241/Sub0Log/benchmarks/simdjson/generate_adapter.py": "db69f418f9abc0000e4b552640a34a95c2dae18f1e055a7748491d87c7c65965",
+    "/workspace/scratch/b929641ab241/Sub0Log/build-simdjson/benchmarks/simdjson/formatter.hpp": "0a49ad4b21fbc347bd30d94f80d71aadd234554672df8007ca5a3bf29eecd3a7"
+  }
+}

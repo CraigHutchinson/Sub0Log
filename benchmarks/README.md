@@ -189,3 +189,10 @@ counts.
   each fixture-building helper.
 - **No platform guards.** Every group builds and runs identically on
   Windows/Linux/macOS; nothing here reaches for a POSIX-only API.
+
+## Optional simdjson evaluation
+
+The off-by-default [JSON generation experiment](simdjson/README.md) compares
+schema-preserving builders and a dependency-free bulk-append alternative, with
+actual CLI and Crucible receiving. Its Linux campaign helpers are separate from
+the portable benchmark groups above.

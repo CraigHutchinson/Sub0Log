@@ -1,0 +1,9 @@
+   text	   data	    bss	    dec	    hex	filename
+ 107393	   2048	     80	 109521	  1abd1	build-simdjson/tools/sub0log-cat
+ 348463	   5576	    592	 354631	  56947	build-simdjson/benchmarks/simdjson/sub0log-cat-simdjson-fresh
+ 348347	   5576	    592	 354515	  568d3	build-simdjson/benchmarks/simdjson/sub0log-cat-simdjson-reuse
+ 110137	   2048	     80	 112265	  1b689	build-simdjson/benchmarks/simdjson/sub0log-cat-simdjson-stdlib
+ 346509	   4040	    768	 351317	  55c55	../simd-crucible-final/control
+ 577543	   7608	   1264	 586415	  8f2af	../simd-crucible-final/fresh
+ 577543	   7608	   1264	 586415	  8f2af	../simd-crucible-final/reuse
+ 350850	   4040	    768	 355658	  56d4a	../simd-crucible-final/stdlib
